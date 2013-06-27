@@ -5,51 +5,89 @@ import (
 	"os"
 	"path/filepath"
 	"log"
+	"net"
+	"flag"
+	"strings"
+	"io"
+	"io/ioutil"
+	"os/exec"
+	"path"
+	"bufio"
+	"reflect"
+	"crypto/rand"
+	"encoding/hex"
+	"runtime"
 )
 
-main() {
-	c := newRootContainer(".")
-	e := NewEngine(c.Path(".docker/engine"))
-	go e.ListenAndServe()
-	s, err := net.Connect("unix", e.socketPath)
+func main() {
+	flag.Parse()
+	var (
+		cmd string
+		args []string
+	)
+	cmd = flag.Arg(0)
+	if flag.NArg() > 1 {
+		args = flag.Args()[1:]
+	}
+
+	c, err  := newRootContainer(".")
+	if err != nil {
+		log.Fatal(err)
+	}
+	e, err := NewEngine(c.Path(".docker/engine"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	signal.func Notify(c chan<- os.Signal, sig ...os.Signal)
+	ready := make(chan bool)
+	go func() {
+		if err := e.ListenAndServe(ready); err != nil {
+			log.Fatal(err)
+		}
+	}()
+	<-ready
+	s, err := net.Dial("unix", e.Path("ctl"))
 	if err != nil {
 		log.Fatal(err)
 	}
 	commands := []string{
-		"in " + flag.Arg(0),
-		"start " + "\0".Join(flag.Args()[1:]),
+		"in " + cmd,
+		"start " + strings.Join(args, "\x00"),
 		"wait",
 		"die",
 	}
-	if _, err := io.Copy(s, strings.Join(commands)); err != nil {
+	if _, err := io.Copy(s, strings.NewReader(strings.Join(commands, "\n"))); err != nil {
 		log.Fatal(err)
 	}
 	resp, err := ioutil.ReadAll(s)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if resp != "" {
-		log.Fatal("Engine error: " + resp)
+	if len(resp) != 0 {
+		log.Fatal("Engine error: " + string(resp))
 	}
 }
 
 
 func newRootContainer(root string) (*Container, error) {
+	abspath, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
 	c := &Container{
-		Root: filepath.Abs(root),
+		Root: abspath,
 	}
 	// If it already exists, don't touch it
-	err := os.MkdirAll(c.Path(".docker"), 0700)
-	if os.IsExist(err) {
-		// FIXME: optionally upgrade it
+	if st, err := os.Stat(c.Path(".docker")); err == nil && st.IsDir() {
 		return c, nil
-	} else if err != nil {
+	}
+	if err := os.MkdirAll(c.Path(".docker"), 0700); err != nil {
 		return nil, err
 	}
 	// ROOT/.docker didn't exist: set it up
-	defer func() { if err != nil { os.RemoveAll(c.Path(".docker")) } }
+	defer func() { if err != nil { os.RemoveAll(c.Path(".docker")) } }()
 	// Generate an engine ID
-	if err := writeFile(c.Path(".docker/engine/id"), GenerateID()); err != nil {
+	if err := writeFile(c.Path(".docker/engine/id"), GenerateID() + "\n"); err != nil {
 		return nil, err
 	}
 	// Setup .docker/bin/docker
@@ -57,11 +95,11 @@ func newRootContainer(root string) (*Container, error) {
 		return nil, err
 	}
 	// FIXME: create hardlink if possible
-	if err := exec.Command("cp", []string{SelfPath(), c.Path(".docker/bin/docker")).Run(); err != nil {
+	if err := exec.Command("cp", SelfPath(), c.Path(".docker/bin/docker")).Run(); err != nil {
 		return nil, err
 	}
 	// Setup .docker/bin/*
-	for cmd in range []string {
+	for _, cmd := range []string {
 		"exec",
 		"start",
 		"stop",
@@ -72,9 +110,10 @@ func newRootContainer(root string) (*Container, error) {
 		}
 	}
 	// Setup .docker/run/main
-	if err := writeFile(c.Path(".docker/run/main/cmd", "docker\0--engine"); err != nil {
+	if err := writeFile(c.Path(".docker/run/main/cmd"), "docker\x00--engine"); err != nil {
 		return nil, err
 	}
+	return c, nil
 }
 
 
@@ -83,15 +122,12 @@ func newRootContainer(root string) (*Container, error) {
 // Container
 
 type Container struct {
+	Id   string
 	Root string
 }
 
 func (c *Container) Path(p ...string) string {
-	return path.Join(c.Root, p...)
-}
-
-func (c *Container) Chain(commands ...*Command) {
-	context := c
+	return path.Join(append([]string{c.Root}, p...)...)
 }
 
 
@@ -99,23 +135,32 @@ func (c *Container) Chain(commands ...*Command) {
 
 
 type Engine struct {
-	root string
+	Root string
 }
 
-func NewEngine(root string) *Engine {
-	return &Engine{
-		root: filepath.Abspath(root)
+func NewEngine(root string) (*Engine, error) {
+	abspath, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
 	}
+	return &Engine{
+		Root: abspath,
+	}, nil
 }
 
 
-func (eng *Engine) ListenAndServe() error {
+func (eng *Engine) ListenAndServe(ready chan bool) (err error) {
+	defer close(ready)
 	l, err := net.Listen("unix", eng.Path("ctl"))
 	if err != nil {
 		return err
 	}
+	if ready != nil {
+		ready <- true
+	}
 	// FIXME: do we need to remove the socket?
 	for {
+		Debugf("Listening on %s\n", eng.Path("ctl"))
 		conn, err := l.Accept()
 		if err != nil {
 			log.Fatal(err)
@@ -130,15 +175,15 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 			fmt.Fprintf(conn, "%s\n", err)
 		}
 		conn.Close()
-	}
-	var context string // name of the current container
+	}()
 	lines := bufio.NewReader(conn)
+	chain := eng.Chain()
 	for {
-		line, err := lines.ReadString("\n")
+		line, err := lines.ReadString('\n')
 		if err != nil && err != io.EOF {
 			return err
 		}
-		if err := eng.Cmd(line, context); err != nil {
+		if err := chain.Cmd(line); err != nil {
 			return err
 		}
 	}
@@ -146,7 +191,7 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 }
 
 func (eng *Engine) Path(p ...string) string {
-	return path.Join(eng.Root, p...)
+	return path.Join(append([]string{eng.Root}, p...)...)
 }
 
 func (eng *Engine) Chain() *Chain {
@@ -159,19 +204,19 @@ func (eng *Engine) Get(name string) (*Container, error) {
 	// FIXME: index containers by name, with nested names etc.
 	cRoot := eng.Path("/containers", name)
 	if st, err := os.Stat(cRoot); err != nil {
-		return nil, error
+		return nil, err
 	} else if !st.IsDir() {
 		return nil, fmt.Errorf("%s: not a directory", name)
 	}
 	return &Container{
-		id: name,
-		root: cRoot,
+		Id: name,
+		Root: cRoot,
 	}, nil
 }
 
 
 func (chain *Chain) Cmd(input string) error {
-	cmd, err := chain.parse(input)
+	cmd, err := ParseCommand(input)
 	if err != nil {
 		return err
 	}
@@ -192,15 +237,30 @@ func (chain *Chain) Cmd(input string) error {
 	// FIXME: insert post-hooks here
 }
 
-func (chain *chain) parse(input string) (*Command, error) {
+
+// Command
+
+type Command struct {
+	Op	string
+	Args	[]string
+}
+
+func ParseCommand(input string) (*Command, error) {
 	parts := strings.SplitN(input, " ", 2)
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("%s: invalid format", input)
 	}
 	return &Command{
 		Op: parts[0],
-		Args: strings.Split(parts[1], "\0"),
-	}
+		Args: strings.Split(parts[1], "\x00"),
+	}, nil
+}
+
+// Chain
+
+type Chain struct {
+	context	*Container
+	engine	*Engine
 }
 
 func (chain *Chain) getMethod(name string) (reflect.Method, bool) {
@@ -209,7 +269,7 @@ func (chain *Chain) getMethod(name string) (reflect.Method, bool) {
 }
 
 func (chain *Chain) CmdIn(args ...string) (err error) {
-	chain.context, err = chain.engine.Get(arg[0])
+	chain.context, err = chain.engine.Get(args[0])
 	return err
 }
 
@@ -220,6 +280,7 @@ func (chain *Chain) CmdStart(args ...string) (err error) {
 	// Iterate on commands
 	// For each command, call CmdExec
 	// Check if already running
+	return fmt.Errorf("No yet implemented") // FIXME
 }
 
 
@@ -263,7 +324,24 @@ func writeFile(dst, content string) error {
 	if _, err := io.Copy(f, strings.NewReader(content)); err != nil {
 		return err
 	}
+	return nil
 }
 
 
+// Debug function, if the debug flag is set, then display. Do nothing otherwise
+// If Docker is in damon mode, also send the debug info on the socket
+func Debugf(format string, a ...interface{}) {
+	if os.Getenv("DEBUG") != "" {
 
+		// Retrieve the stack infos
+		_, file, line, ok := runtime.Caller(1)
+		if !ok {
+			file = "<unknown>"
+			line = -1
+		} else {
+			file = file[strings.LastIndex(file, "/")+1:]
+		}
+
+		fmt.Fprintf(os.Stderr, fmt.Sprintf("[debug] %s:%d %s\n", file, line, format), a...)
+	}
+}
