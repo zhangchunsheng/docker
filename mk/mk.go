@@ -26,6 +26,10 @@ func main() {
 		cmd string
 		args []string
 	)
+	if flag.NArg() < 1 {
+		fmt.Printf("Usage: mk CMD [ARGS...]\n")
+		os.Exit(1)
+	}
 	cmd = flag.Arg(0)
 	if flag.NArg() > 1 {
 		args = flag.Args()[1:]
