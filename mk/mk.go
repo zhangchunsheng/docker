@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"log"
 	"net"
@@ -38,7 +39,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	signal.func Notify(c chan<- os.Signal, sig ...os.Signal)
+	defer e.Cleanup()
 	ready := make(chan bool)
 	go func() {
 		if err := e.ListenAndServe(ready); err != nil {
@@ -148,14 +149,39 @@ func NewEngine(root string) (*Engine, error) {
 	}, nil
 }
 
+func (eng *Engine) Cleanup() {
+	Debugf("Cleaning up engine")
+	os.Remove(eng.Path("ctl"))
+}
 
 func (eng *Engine) ListenAndServe(ready chan bool) (err error) {
 	defer close(ready)
 	l, err := net.Listen("unix", eng.Path("ctl"))
 	if err != nil {
-		return err
+		if c, dialErr := net.Dial("unix", eng.Path("ctl")); dialErr != nil {
+			fmt.Printf("Cleaning up leftover unix socket\n")
+			os.Remove(eng.Path("ctl"))
+			l, err = net.Listen("unix", eng.Path("ctl"))
+			if err != nil {
+				return err
+			}
+		} else {
+			c.Close()
+			return err
+		}
 	}
+	Debugf("Setting up signals")
+	signals := make(chan os.Signal, 128)
+	signal.Notify(signals)
+	go func() {
+		for sig := range signals {
+			fmt.Printf("Caught %s. Closing socket\n", sig)
+			l.Close()
+		}
+	}()
+
 	if ready != nil {
+		Debugf("Synchronizing")
 		ready <- true
 	}
 	// FIXME: do we need to remove the socket?
@@ -165,6 +191,7 @@ func (eng *Engine) ListenAndServe(ready chan bool) (err error) {
 		if err != nil {
 			log.Fatal(err)
 		}
+		Debugf("Received connection: %s", conn)
 		go eng.Serve(conn)
 	}
 }
@@ -179,10 +206,12 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 	lines := bufio.NewReader(conn)
 	chain := eng.Chain()
 	for {
+		Debugf("Reading command...")
 		line, err := lines.ReadString('\n')
 		if err != nil && err != io.EOF {
 			return err
 		}
+		Debugf("Processing command: %s", line)
 		if err := chain.Cmd(line); err != nil {
 			return err
 		}
