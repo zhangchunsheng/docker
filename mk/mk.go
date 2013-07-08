@@ -22,17 +22,9 @@ import (
 
 func main() {
 	flag.Parse()
-	var (
-		cmd string
-		args []string
-	)
 	if flag.NArg() < 1 {
 		fmt.Printf("Usage: mk CMD [ARGS...]\n")
 		os.Exit(1)
-	}
-	cmd = flag.Arg(0)
-	if flag.NArg() > 1 {
-		args = flag.Args()[1:]
 	}
 
 	c, err  := newRootContainer(".")
@@ -56,8 +48,9 @@ func main() {
 		log.Fatal(err)
 	}
 	commands := []string{
-		"in " + cmd,
-		"start " + strings.Join(args, "\x00"),
+		// Execute this in container zero
+		"in 0",
+		"exec " + strings.Join(flag.Args(), "\x00"),
 		"wait",
 		"die",
 	}
@@ -74,6 +67,7 @@ func main() {
 }
 
 
+
 func newRootContainer(root string) (*Container, error) {
 	abspath, err := filepath.Abs(root)
 	if err != nil {
@@ -82,11 +76,7 @@ func newRootContainer(root string) (*Container, error) {
 	c := &Container{
 		Root: abspath,
 	}
-	// If it already exists, don't touch it
-	if st, err := os.Stat(c.Path(".docker")); err == nil && st.IsDir() {
-		return c, nil
-	}
-	if err := os.MkdirAll(c.Path(".docker"), 0700); err != nil {
+	if err := os.MkdirAll(c.Path(".docker"), 0700); err != nil && !os.IsExist(err) {
 		return nil, err
 	}
 	// ROOT/.docker didn't exist: set it up
@@ -96,7 +86,7 @@ func newRootContainer(root string) (*Container, error) {
 		return nil, err
 	}
 	// Setup .docker/bin/docker
-	if err := os.MkdirAll(c.Path(".docker/bin"), 0700); err != nil {
+	if err := os.MkdirAll(c.Path(".docker/bin"), 0700); err != nil && !os.IsExist(err) {
 		return nil, err
 	}
 	// FIXME: create hardlink if possible
@@ -110,7 +100,7 @@ func newRootContainer(root string) (*Container, error) {
 		"stop",
 		"commit",
 	} {
-		if err := os.Symlink("docker", c.Path(".docker/bin", cmd)); err != nil {
+		if err := symlink("docker", c.Path(".docker/bin", cmd)); err != nil {
 			return nil, err
 		}
 	}
@@ -332,6 +322,7 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 		if err != nil && err != io.EOF {
 			return err
 		}
+		line = strings.Trim(line, "\n")
 		Debugf("Processing command: %s", line)
 		op, err := ParseOp(line)
 		if err != nil {
@@ -369,7 +360,8 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 			return err
 		}
 		// ...with the current context as cwd
-		cmd.Dir = ".docker/engine/containers/" + chain.context.Id
+		cmd.Dir = chain.context.Root
+		Debugf("Container will be run in %s", cmd.Dir)
 		Debugf("Attaching to stdout and stderr")
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -405,6 +397,9 @@ func (eng *Engine) Chain() *Chain {
 }
 
 func (eng *Engine) Get(name string) (*Container, error) {
+	if name == "0" {
+		return eng.c0, nil
+	}
 	// FIXME: index containers by name, with nested names etc.
 	cRoot := eng.Path("/containers", name)
 	if st, err := os.Stat(cRoot); err != nil {
@@ -552,6 +547,19 @@ func writeFile(dst, content string) error {
 		return err
 	}
 	return nil
+}
+
+func symlink(newname, oldname string) error {
+	// If it already exists, remove it. This emulates 'ln -s -f' behavior
+	// FIXME: this is prone to race condition.
+	if err := os.Remove(oldname); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	// Create subdirectories if necessary
+	if err := os.MkdirAll(path.Dir(oldname), 0700); err != nil && !os.IsExist(err) {
+		return err
+	}
+	return os.Symlink(newname, oldname)
 }
 
 // Return the contents of file at path `src`.
