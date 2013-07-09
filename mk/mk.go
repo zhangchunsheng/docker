@@ -382,13 +382,7 @@ func (eng *Engine) Ctl(ops ...string) error {
 	if err != nil {
 		return err
 	}
-	commands := []string{
-		// Execute this in container zero
-		"in 0",
-		strings.Join(flag.Args(), "\x00"),
-		"wait",
-		"die",
-	}
+	defer s.Close()
 	if _, err := io.Copy(s, strings.NewReader(strings.Join(ops, "\n"))); err != nil {
 		return err
 	}
