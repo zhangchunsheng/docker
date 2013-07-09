@@ -473,7 +473,7 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 			}
 			chain.context = ctx
 		} else {
-			Debugf("Preparing to execute commnad in context %s", chain.context.Id)
+			Debugf("Preparing to execute command in context %s", chain.context.Id)
 			// Execute command as a process inside the root container...
 			cmd, err := eng.c0.NewCommand("", eng.c0.Path(".docker/bin/docker"), append([]string{"-e", op.Name}, op.Args...)...)
 			if err != nil {
@@ -724,7 +724,7 @@ func Debugf(format string, a ...interface{}) {
 			file = file[strings.LastIndex(file, "/")+1:]
 		}
 
-		fmt.Fprintf(os.Stderr, fmt.Sprintf("[debug] %s:%d %s\n", file, line, format), a...)
+		fmt.Fprintf(os.Stderr, fmt.Sprintf("[%d] [debug] %s:%d %s\n", os.Getpid(), file, line, format), a...)
 	}
 }
 
