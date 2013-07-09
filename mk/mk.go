@@ -41,14 +41,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	e, err := NewEngine(c) // Pass the root container to the engine
+	eng, err := NewEngine(c) // Pass the root container to the engine
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer e.Cleanup()
+	defer eng.Cleanup()
 	ready := make(chan bool)
 	go func() {
-		if err := e.ListenAndServe(ready); err != nil {
+		if err := eng.ListenAndServe(ready); err != nil {
 			log.Fatal(err)
 		}
 	}()
