@@ -584,13 +584,12 @@ type Op struct {
 
 func ParseOp(input string) (*Op, error) {
 	parts := strings.SplitN(input, " ", 2)
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("%s: invalid format", input)
+	var op Op
+	op.Name = strings.ToLower(parts[0])
+	if len(parts) >= 2 {
+		op.Args = strings.Split(parts[1], "\x00")
 	}
-	return &Op{
-		Name: strings.ToLower(parts[0]),
-		Args: strings.Split(parts[1], "\x00"),
-	}, nil
+	return &op, nil
 }
 
 // Chain
