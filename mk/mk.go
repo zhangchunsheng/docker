@@ -203,10 +203,6 @@ func newRootContainer(root string) (*Container, error) {
 			return nil, err
 		}
 	}
-	// Setup .docker/run/main
-	if err := writeFile(c.Path(".docker/run/main/cmd"), "docker\x00--engine"); err != nil {
-		return nil, err
-	}
 	return c, nil
 }
 
