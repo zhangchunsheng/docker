@@ -131,8 +131,17 @@ func engineMain(args []string) error {
 	} else if args[0] == "serve" {
 		// Expose engine functionalities over the remote http api
 	} else if args[0] == "build" {
-		dockerfile := os.Open("./Dockerfile")
-		for line := dockerfile.lines() {
+		dockerfile, err := os.Open("./Dockerfile")
+		if err != nil {
+			return err
+		}
+		lines := bufio.NewReader(dockerfile)
+		for {
+			line, err := lines.ReadString('\n')
+			if err != nil {
+				return err
+			}
+			line = strings.Trim(line, "\n")
 			eng.Ctl(line)
 		}
 	} else if args[0] == "expose" {
