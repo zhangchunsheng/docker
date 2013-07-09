@@ -152,6 +152,8 @@ func engineMain(args []string) error {
 		// Prompt the user for a value
 	} else if args[0] == "commit" {
 		// Commit a new snapshot of this image
+	} else {
+		return fmt.Errorf("Unknown command: '%s'", args[0])
 	}
 	return nil
 }
