@@ -350,7 +350,7 @@ func (eng *Engine) ListenAndServe(ready chan bool) (err error) {
 	}
 	Debugf("Setting up signals")
 	signals := make(chan os.Signal, 128)
-	signal.Notify(signals)
+	signal.Notify(signals, os.Interrupt, os.Kill)
 	go func() {
 		for sig := range signals {
 			fmt.Printf("Caught %s. Closing socket\n", sig)
