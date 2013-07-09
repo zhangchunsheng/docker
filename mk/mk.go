@@ -105,6 +105,8 @@ func engineMain(args []string) error {
 	}
 	eng := self.Engine()
 	if args[0] == "import" {
+		fmt.Printf("Importing from %s", args[1])
+		/*
 		// FIXME: pseudo-code
 		src := args[1]
 		var data io.Reader
@@ -114,6 +116,7 @@ func engineMain(args []string) error {
 			data = http.Get(src)
 		}
 		Untar(data, ".")
+		*/
 	} else if args[0] == "start" {
 		commands, err := self.LS("docker/run/exec")
 		if err != nil {
@@ -141,6 +144,7 @@ func engineMain(args []string) error {
 	} else if args[0] == "commit" {
 		// Commit a new snapshot of this image
 	}
+	return nil
 }
 
 
@@ -422,7 +426,7 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 			return err
 		}
 		line = strings.Trim(line, "\n")
-		Debugf("Processing command: %s", line)
+		fmt.Printf("---> %s\n", line)
 		op, err := ParseOp(line)
 		if err != nil {
 			return err
@@ -464,7 +468,7 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 			Debugf("Container will be run in %s", cmd.Dir)
 			// DOCKER_ROOT points to the root of the container
 			// In a chrooted environment, this would default to /
-			cmd.Env = append(cmd.Env, "DOCKER_ROOT=" + eng.c0.Root
+			cmd.Env = append(cmd.Env, "DOCKER_ROOT=" + eng.c0.Root)
 			Debugf("Attaching to stdout and stderr")
 			stdout, err := cmd.StdoutPipe()
 			if err != nil {
@@ -484,6 +488,7 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 			if err := cmd.Wait(); err != nil {
 				return err
 			}
+			Debugf("Command returned")
 		}
 	}
 	return nil
