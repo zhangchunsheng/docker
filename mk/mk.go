@@ -80,6 +80,20 @@ func (c *Container) Engine() (*Engine) {
 	}
 }
 
+func (c *Container) LS(dir string) ([]string, error) {
+	files, err := ioutil.ReadDir(c.Path(dir))
+	if os.IsNotExist(err) {
+		return []string{}, nil
+	} else if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, f := range files {
+		names = append(names, f.Name())
+	}
+	return names, nil
+}
+
 
 // This runs in a separate process in c0, chdired to the target container
 // NOTE: we may not be chrooted, so don't assume / is the root of c0
