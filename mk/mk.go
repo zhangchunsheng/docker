@@ -410,7 +410,8 @@ func (eng *Engine) Ctl(ops ...string) error {
 		return err
 	}
 	defer s.Close()
-	if _, err := io.Copy(s, strings.NewReader(strings.Join(ops, "\n"))); err != nil {
+	Debugf("Sending ops over ctl socket")
+	if _, err := io.Copy(s, strings.NewReader(strings.Join(ops, "\n") + "\n")); err != nil {
 		return err
 	}
 	Debugf("Reading response")
