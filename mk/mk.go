@@ -21,7 +21,14 @@ import (
 )
 
 func main() {
+	flEngine := flag.Bool("e", false, "Engine mode")
 	flag.Parse()
+	if *flEngine {
+		if err := engineMain(flag.Args()); err != nil {
+			log.Fatal(err)
+		}
+		os.Exit(0)
+	}
 	if flag.NArg() < 1 {
 		fmt.Printf("Usage: mk CMD [ARGS...]\n")
 		os.Exit(1)
@@ -43,29 +50,73 @@ func main() {
 		}
 	}()
 	<-ready
-	s, err := net.Dial("unix", e.Path("ctl"))
-	if err != nil {
-		log.Fatal(err)
-	}
-	commands := []string{
-		// Execute this in container zero
+	if err := eng.Ctl(
 		"in 0",
-		"exec " + strings.Join(flag.Args(), "\x00"),
+		strings.Join(flag.Args(), "\x00"),
 		"wait",
 		"die",
-	}
-	if _, err := io.Copy(s, strings.NewReader(strings.Join(commands, "\n"))); err != nil {
+	); err != nil {
 		log.Fatal(err)
-	}
-	resp, err := ioutil.ReadAll(s)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if len(resp) != 0 {
-		log.Fatal("Engine error: " + string(resp))
 	}
 }
 
+func CurrentContainer() (*Container, error) {
+	root := os.Getenv("DOCKER_ROOT")
+	if root == "" {
+		root = "/"
+	}
+	Debugf("Loading current container, root=%s", root)
+	return &Container{
+		Root: root,
+	}, nil
+}
+
+func (c *Container) Engine() (*Engine) {
+	return &Engine{
+		c0: c,
+	}
+}
+
+
+// This runs in a separate process in c0, chdired to the target container
+// NOTE: we may not be chrooted, so don't assume / is the root of c0
+// FIXME: do we need access to the root of c0?
+func engineMain(args []string) error {
+	eng := NewReflector() // This needs access to c0
+	if args[0] == "import" {
+		// FIXME: pseudo-code
+		src := args[1]
+		var data io.Reader
+		if src == "-" {
+			data = os.Stdin
+		} else {
+			data = http.Get(src)
+		}
+		Untar(data, ".")
+	} else if args[0] == "start" {
+		for _, cmd := eng.List("/commands") {
+			go eng.Ctl("exec " + cmd)
+		}
+		// Wait for all execs to return
+	} else if args[0] == "exec" {
+		// Execute a process into a container, using chroot
+	} else if args[0] == "serve" {
+		// Expose engine functionalities over the remote http api
+	} else if args[0] == "build" {
+		dockerfile := os.Open("./Dockerfile")
+		for line := dockerfile.lines() {
+			eng.Ctl(line)
+		}
+	} else if args[0] == "expose" {
+		// Expose a TCP port
+	} else if args[0] == "connect" {
+		// Discover a TCP port to connect to
+	} else if args[0] == "prompt" {
+		// Prompt the user for a value
+	} else if args[0] == "commit" {
+		// Commit a new snapshot of this image
+	}
+}
 
 
 func newRootContainer(root string) (*Container, error) {
@@ -306,6 +357,34 @@ func (eng *Engine) ListenAndServe(ready chan bool) (err error) {
 	}
 }
 
+// Ctl connects to the engine's control socket and issues standard operations on it.
+// This is used to pass user commands to the engine, and also for further introspection
+// by the containers themselves.
+func (eng *Engine) Ctl(ops ...string) error {
+	s, err := net.Dial("unix", eng.Path("ctl"))
+	if err != nil {
+		return err
+	}
+	commands := []string{
+		// Execute this in container zero
+		"in 0",
+		strings.Join(flag.Args(), "\x00"),
+		"wait",
+		"die",
+	}
+	if _, err := io.Copy(s, strings.NewReader(strings.Join(ops, "\n"))); err != nil {
+		return err
+	}
+	resp, err := ioutil.ReadAll(s)
+	if err != nil {
+		return err
+	}
+	if len(resp) != 0 {
+		return fmt.Errorf("Engine error: " + string(resp))
+	}
+	return nil
+}
+
 func (eng *Engine) Serve(conn net.Conn) (err error) {
 	defer func() {
 		if err != nil {
@@ -352,34 +431,38 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 				return err
 			}
 			chain.context = ctx
-		}
-		Debugf("Preparing to execute commnad in context %s", chain.context.Id)
-		// Execute command as a process inside the root container...
-		cmd, err := eng.c0.NewCommand("", "docker", append([]string{"--engine", op.Name}, op.Args...)...)
-		if err != nil {
-			return err
-		}
-		// ...with the current context as cwd
-		cmd.Dir = chain.context.Root
-		Debugf("Container will be run in %s", cmd.Dir)
-		Debugf("Attaching to stdout and stderr")
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			return err
-		}
-		go io.Copy(os.Stdout, stdout)
-		stderr, err := cmd.StderrPipe()
-		if err != nil {
-			return err
-		}
-		go io.Copy(os.Stderr, stderr)
-		Debugf("Starting command")
-		if err := cmd.Start(); err != nil {
-			return err
-		}
-		Debugf("Waiting for command")
-		if err := cmd.Wait(); err != nil {
-			return err
+		} else {
+			Debugf("Preparing to execute commnad in context %s", chain.context.Id)
+			// Execute command as a process inside the root container...
+			cmd, err := eng.c0.NewCommand("", "docker", append([]string{"--engine", op.Name}, op.Args...)...)
+			if err != nil {
+				return err
+			}
+			// ...with the current context as cwd
+			cmd.Dir = chain.context.Root
+			Debugf("Container will be run in %s", cmd.Dir)
+			// DOCKER_ROOT points to the root of the container
+			// In a chrooted environment, this would default to /
+			cmd.Env = append(cmd.Env, "DOCKER_ROOT=" + eng.c0.Root
+			Debugf("Attaching to stdout and stderr")
+			stdout, err := cmd.StdoutPipe()
+			if err != nil {
+				return err
+			}
+			go io.Copy(os.Stdout, stdout)
+			stderr, err := cmd.StderrPipe()
+			if err != nil {
+				return err
+			}
+			go io.Copy(os.Stderr, stderr)
+			Debugf("Starting command")
+			if err := cmd.Start(); err != nil {
+				return err
+			}
+			Debugf("Waiting for command")
+			if err := cmd.Wait(); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -485,10 +568,6 @@ func (chain *Chain) getMethod(name string) (reflect.Method, bool) {
 	return reflect.TypeOf(chain).MethodByName(methodName)
 }
 
-func (chain *Chain) CmdIn(args ...string) (err error) {
-	chain.context, err = chain.engine.Get(args[0])
-	return err
-}
 
 func (chain *Chain) CmdStart(args ...string) (err error) {
 	if chain.context == nil {
