@@ -142,7 +142,10 @@ func engineMain(args []string) error {
 				return err
 			}
 			line = strings.Trim(line, "\n")
-			eng.Ctl(line)
+			fmt.Printf("build op '%s'\n", line)
+			if err := eng.Ctl(line); err != nil {
+				return err
+			}
 		}
 	} else if args[0] == "expose" {
 		// Expose a TCP port
@@ -410,6 +413,7 @@ func (eng *Engine) Ctl(ops ...string) error {
 	if _, err := io.Copy(s, strings.NewReader(strings.Join(ops, "\n"))); err != nil {
 		return err
 	}
+	Debugf("Reading response")
 	resp, err := ioutil.ReadAll(s)
 	if err != nil {
 		return err
@@ -417,6 +421,7 @@ func (eng *Engine) Ctl(ops ...string) error {
 	if len(resp) != 0 {
 		return fmt.Errorf("Engine error: " + string(resp))
 	}
+	Debugf("Op successful")
 	return nil
 }
 
