@@ -492,11 +492,7 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 			}
 			go io.Copy(os.Stderr, stderr)
 			Debugf("Starting command")
-			if err := cmd.Start(); err != nil {
-				return err
-			}
-			Debugf("Waiting for command")
-			if err := cmd.Wait(); err != nil {
+			if err := cmd.Run(); err != nil {
 				return err
 			}
 			Debugf("Command returned")
