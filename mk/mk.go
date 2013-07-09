@@ -99,7 +99,11 @@ func (c *Container) LS(dir string) ([]string, error) {
 // NOTE: we may not be chrooted, so don't assume / is the root of c0
 // FIXME: do we need access to the root of c0?
 func engineMain(args []string) error {
-	eng := NewReflector() // This needs access to c0
+	self, err := CurrentContainer() // This needs access to c0
+	if err != nil {
+		return err
+	}
+	eng := self.Engine()
 	if args[0] == "import" {
 		// FIXME: pseudo-code
 		src := args[1]
@@ -111,7 +115,11 @@ func engineMain(args []string) error {
 		}
 		Untar(data, ".")
 	} else if args[0] == "start" {
-		for _, cmd := eng.List("/commands") {
+		commands, err := self.LS("docker/run/exec")
+		if err != nil {
+			return err
+		}
+		for _, cmd := range commands {
 			go eng.Ctl("exec " + cmd)
 		}
 		// Wait for all execs to return
@@ -143,6 +151,7 @@ func newRootContainer(root string) (*Container, error) {
 	}
 	c := &Container{
 		Root: abspath,
+		Id: "0",
 	}
 	if err := os.MkdirAll(c.Path(".docker"), 0700); err != nil && !os.IsExist(err) {
 		return nil, err
@@ -445,12 +454,13 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 		} else {
 			Debugf("Preparing to execute commnad in context %s", chain.context.Id)
 			// Execute command as a process inside the root container...
-			cmd, err := eng.c0.NewCommand("", "docker", append([]string{"--engine", op.Name}, op.Args...)...)
+			cmd, err := eng.c0.NewCommand("", eng.c0.Path(".docker/bin/docker"), append([]string{"-e", op.Name}, op.Args...)...)
 			if err != nil {
 				return err
 			}
 			// ...with the current context as cwd
-			cmd.Dir = chain.context.Root
+			// (relative to the container)
+			cmd.Dir = ".docker/engine/containers/" + chain.context.Id
 			Debugf("Container will be run in %s", cmd.Dir)
 			// DOCKER_ROOT points to the root of the container
 			// In a chrooted environment, this would default to /
