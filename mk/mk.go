@@ -21,8 +21,11 @@ import (
 )
 
 func main() {
+	os.Setenv("DEBUG", "1")
+	Debugf("Main")
 	flEngine := flag.Bool("e", false, "Engine mode")
 	flag.Parse()
+	writeFile("last-call", strings.Join(flag.Args(), " "))
 	if *flEngine {
 		if err := engineMain(flag.Args()); err != nil {
 			log.Fatal(err)
