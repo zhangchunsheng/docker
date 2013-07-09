@@ -180,6 +180,10 @@ func newRootContainer(root string) (*Container, error) {
 	if err := writeFile(c.Path(".docker/engine/id"), GenerateID() + "\n"); err != nil {
 		return nil, err
 	}
+	// Link containers/0 to the root container
+	if err := symlink("../../..", c.Path(".docker/engine/containers/0")); err != nil {
+		return nil, err
+	}
 	// Setup .docker/bin/docker
 	if err := os.MkdirAll(c.Path(".docker/bin"), 0700); err != nil && !os.IsExist(err) {
 		return nil, err
