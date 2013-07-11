@@ -568,13 +568,15 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 			}
 			Debugf("Committed %s to %s (not really)", src.Id, ctx.Id)
 			chain.context = ctx
-		} else if chain.context == nil {
-			ctx, err := eng.Create()
-			if err != nil {
-				return err
-			}
-			chain.context = ctx
 		} else {
+			// If context is still not set, create an new empty container as context
+			if chain.context == nil {
+				ctx, err := eng.Create()
+				if err != nil {
+					return err
+				}
+				chain.context = ctx
+			}
 			Debugf("Preparing to execute command in context %s", chain.context.Id)
 			// Execute command as a process inside the root container...
 			cmd, err := eng.c0.NewCommand("", eng.c0.Path(".docker/bin/docker"), append([]string{"-e", op.Name}, op.Args...)...)
