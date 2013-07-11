@@ -54,10 +54,9 @@ func main() {
 	}()
 	<-ready
 	if err := eng.Ctl(
-		"in 0",
-		strings.Join(flag.Args(), "\x00"),
-		"wait",
-		"die",
+		[]string{"in", "0"},
+		flag.Args(),
+		[]string{"die"},
 	); err != nil {
 		Fatalf("Error sending engine startup commands: %s", err)
 	}
@@ -123,7 +122,7 @@ func engineMain(args []string) error {
 			return err
 		}
 		for _, cmd := range commands {
-			go eng.Ctl("exec " + cmd)
+			go eng.Ctl([]string{"exec", cmd})
 		}
 		// Wait for all execs to return
 	} else if args[0] == "exec" {
@@ -407,53 +406,138 @@ func (eng *Engine) ListenAndServe(ready chan bool) (err error) {
 	}
 }
 
-// Ctl connects to the engine's control socket and issues standard operations on it.
+// Ctl connects to the engine's control socket and issues a standard operation on it.
 // This is used to pass user commands to the engine, and also for further introspection
 // by the containers themselves.
-func (eng *Engine) Ctl(ops ...string) error {
+// The protocol is inspired by the Redis wire protocol (http://redis.io/topics/protocol).
+func (eng *Engine) Ctl(ops ...[]string) error {
 	s, err := net.Dial("unix", eng.Path("ctl"))
 	if err != nil {
 		return err
 	}
 	defer s.Close()
-	Debugf("Sending ops over ctl socket")
-	if _, err := io.Copy(s, strings.NewReader(strings.Join(ops, "\n") + "\n")); err != nil {
-		return err
+	reader := bufio.NewReader(s)
+	for idx, opArgs := range ops {
+		Debugf("Sending step #%d ---> %s\n", idx + 1, strings.Join(opArgs, " "))
+		sWriter := io.MultiWriter(s)
+		// Send total number of arguments (including op name)
+		if _, err := fmt.Fprintf(sWriter, "*%d\r\n", len(opArgs)); err != nil {
+			return err
+		}
+		// Send op name as arg #1, followed by op arguments as args #2-#n
+		for _, arg := range opArgs {
+			if _, err := fmt.Fprintf(sWriter, "$%d\r\n%s\r\n", len(arg), arg); err != nil {
+				return err
+			}
+		}
+		// FIXME: implement redis reply protocol
+		Debugf("Reading response...")
+		resp, err := reader.ReadBytes('\n')
+		if err != nil {
+			return err
+		}
+		if len(resp) == 0 {
+			return fmt.Errorf("Engine unexpectedly hung up")
+		}
+		respCode := resp[0]
+		var respData []byte
+		if len(resp) > 1 {
+			respData = resp[1:]
+		}
+		if respCode == '-' {
+			return fmt.Errorf("Engine error: %s", respData)
+		} else if respCode == '+' {
+			Debugf("Engine status: %s", respData)
+		} else {
+			return fmt.Errorf("Engine returned unknown reply code '%c': (\"%s\")", respCode, string(resp))
+		}
 	}
-	Debugf("Reading response")
-	resp, err := ioutil.ReadAll(s)
-	if err != nil {
-		return err
-	}
-	if len(resp) != 0 {
-		return fmt.Errorf("Engine error: " + string(resp))
-	}
-	Debugf("Op successful")
 	return nil
 }
 
 func (eng *Engine) Serve(conn net.Conn) (err error) {
 	defer func() {
 		if err != nil {
-			fmt.Fprintf(conn, "%s\n", err)
+			fmt.Fprintf(conn, "-%s\n", err)
 		}
 		conn.Close()
 	}()
-	lines := bufio.NewReader(conn)
+	reader := bufio.NewReader(conn)
 	chain := eng.Chain()
 	for {
 		// FIXME: commit the current container before each command
 		Debugf("Reading command...")
-		line, err := lines.ReadString('\n')
-		if err != nil && err != io.EOF {
-			return err
-		}
-		line = strings.Trim(line, "\n")
-		fmt.Printf("---> %s\n", line)
-		op, err := ParseOp(line)
+		var nArg int
+		line, err := reader.ReadString('\r')
 		if err != nil {
 			return err
 		}
+		Debugf("line == '%s'", line)
+		if len(line) < 1 || line[len(line) - 1] != '\r' {
+			return fmt.Errorf("Malformed request: doesn't start with '*<nArg>\\r\\n'. %s", err)
+		}
+		line = line[:len(line) - 1]
+		if _, err := fmt.Sscanf(line, "*%d", &nArg); err != nil {
+			return fmt.Errorf("Malformed request: '%s' doesn't start with '*<nArg>'. %s", line, err)
+		}
+		Debugf("nArg = %d", nArg)
+		nl := make([]byte, 1)
+		if _, err := reader.Read(nl); err != nil {
+			return err
+		} else if nl[0] != '\n' {
+			return fmt.Errorf("Malformed request: expected '%x', got '%x'", '\n', nl[0])
+		}
+		var op Op
+		for i:=0; i<nArg; i+=1 {
+			Debugf("\n-------\nReading arg %d/%d", i + 1, nArg)
+			// FIXME: specify int size?
+			var argSize int64
+
+			line, err := reader.ReadString('\r')
+			if err != nil {
+				return err
+			}
+			Debugf("line == '%s'", line)
+			if len(line) < 1 || line[len(line) - 1] != '\r' {
+				return fmt.Errorf("Malformed request: doesn't start with '$<nArg>\\r\\n'. %s", err)
+			}
+			line = line[:len(line) - 1]
+			if _, err := fmt.Sscanf(line, "$%d", &argSize); err != nil {
+				return fmt.Errorf("Malformed request: '%s' doesn't start with '$<nArg>'. %s", line, err)
+			}
+			Debugf("argSize= %d", argSize)
+			nl := make([]byte, 1)
+			if _, err := reader.Read(nl); err != nil {
+				return err
+			} else if nl[0] != '\n' {
+				return fmt.Errorf("Malformed request: expected '%x', got '%x'", '\n', nl[0])
+			}
+
+
+			// Read arg data
+			argData, err := ioutil.ReadAll(io.LimitReader(reader, argSize + 2))
+			if err != nil {
+				return err
+			} else if n := int64(len(argData)); n < argSize + 2 {
+				return fmt.Errorf("Malformed request: argument data #%d doesn't match declared size (expected %d bytes (%d + \r\n), read %d)", i, argSize + 2, argSize, n)
+			} else if string(argData[len(argData) - 2:]) != "\r\n" {
+				return fmt.Errorf("Malformed request: argument #%d doesn't end with \\r\\n", i)
+			}
+			arg := string(argData[:len(argData) - 2])
+			Debugf("arg = %s", arg)
+			if i == 0 {
+				op.Name = strings.ToLower(arg)
+			} else {
+				op.Args = append(op.Args, arg)
+			}
+		}
+		// Whatever is left of the connection is stdin
+		// FIXME: in order to pass stdin, it must be framed..
+		//   BECAUSE we need to support chaining of commands on the same connection...
+		//   BECAUSE chaining of commands is the only practical way to pass a container between commands
+		//op.Stdin = reader
+		fmt.Printf("---> %s %s\n", op.Name, op.Args)
+		// IN and FROM affect the context
 		if op.Name == "in" {
 			ctx, err := eng.Get(op.Args[0])
 			if err != nil {
@@ -509,6 +593,9 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 			}
 			Debugf("Command returned")
 		}
+		// Send a successful reply
+		Debugf("Sending OK")
+		fmt.Fprintf(conn, "+OK\n")
 	}
 	return nil
 }
@@ -555,49 +642,12 @@ func (eng *Engine) Create() (*Container, error) {
 }
 
 
-// Cmd parses and execute a command in the chain.
-// Examples of valid command input:
-//	"PULL ubuntu"
-//	"START"
-//	"EXEC ls\x00-l"
-func (chain *Chain) Op(input string) error {
-	op, err := ParseOp(input)
-	if err != nil {
-		return err
-	}
-	// FIXME: insert pre-hooks here
-	// FIXME: insert default commands here
-	method, exists := chain.getMethod(op.Name)
-	if !exists {
-		return fmt.Errorf("No such command: %s", op.Name)
-	}
-	ret := method.Func.CallSlice([]reflect.Value{
-		reflect.ValueOf(chain),
-		reflect.ValueOf(op.Args),
-	})[0].Interface()
-	if ret == nil {
-		return nil
-	}
-	return ret.(error)
-	// FIXME: insert post-hooks here
-}
-
 
 // Command
 
 type Op struct {
 	Name	string
 	Args	[]string
-}
-
-func ParseOp(input string) (*Op, error) {
-	parts := strings.SplitN(input, " ", 2)
-	var op Op
-	op.Name = strings.ToLower(parts[0])
-	if len(parts) >= 2 {
-		op.Args = strings.Split(parts[1], "\x00")
-	}
-	return &op, nil
 }
 
 // Chain
