@@ -127,6 +127,10 @@ func engineMain(args []string) error {
 		}
 		// Wait for all execs to return
 	} else if args[0] == "exec" {
+		cmd := exec.Command(args[1], args[2:]...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Run()
 		// Execute a process into a container, using chroot
 	} else if args[0] == "serve" {
 		// Expose engine functionalities over the remote http api
