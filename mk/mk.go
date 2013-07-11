@@ -567,6 +567,9 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 			}
 			Debugf("Committed %s to %s (not really)", src.Id, ctx.Id)
 			chain.context = ctx
+		} else if op.Name == "die" {
+			fmt.Fprintf(conn, "+OK\n")
+			return nil
 		} else {
 			// If context is still not set, create an new empty container as context
 			if chain.context == nil {
