@@ -134,6 +134,8 @@ func engineMain(args []string) error {
 		// Execute a process into a container, using chroot
 	} else if args[0] == "serve" {
 		// Expose engine functionalities over the remote http api
+	} else if args[0] == "echo" {
+		fmt.Println(strings.Join(args[1:], " "))
 	} else if args[0] == "build" {
 		dockerfile, err := os.Open("./Dockerfile")
 		if err != nil {
