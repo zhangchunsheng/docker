@@ -141,15 +141,27 @@ func engineMain(args []string) error {
 			return err
 		}
 		lines := bufio.NewReader(dockerfile)
+		var eof bool
 		for {
 			line, err := lines.ReadString('\n')
-			if err != nil {
+			if err == io.EOF {
+				eof = true
+			} else if err != nil {
 				return err
 			}
 			line = strings.Trim(line, "\n")
+			if len(line) == 0 || line[0] == '#' {
+				continue
+			}
 			fmt.Printf("build op '%s'\n", line)
-			if err := eng.Ctl(line); err != nil {
+			// FIXME: split in different number of parts depending on dockerfile command
+			// (this is to respect backwards compatibility with the current dockerfile format)
+			parts := strings.SplitN(line, " ", 2)
+			if err := eng.Ctl(parts); err != nil {
 				return err
+			}
+			if eof {
+				break
 			}
 		}
 	} else if args[0] == "expose" {
