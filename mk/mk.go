@@ -588,17 +588,8 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 			// DOCKER_ROOT points to the root of the container
 			// In a chrooted environment, this would default to /
 			cmd.Env = append(cmd.Env, "DOCKER_ROOT=" + eng.c0.Root)
-			Debugf("Attaching to stdout and stderr")
-			stdout, err := cmd.StdoutPipe()
-			if err != nil {
-				return err
-			}
-			go io.Copy(os.Stdout, stdout)
-			stderr, err := cmd.StderrPipe()
-			if err != nil {
-				return err
-			}
-			go io.Copy(os.Stderr, stderr)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
 			Debugf("Starting command")
 			if err := cmd.Run(); err != nil {
 				return err
