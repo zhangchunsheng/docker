@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"log"
 	"net"
 	"flag"
 	"strings"
@@ -28,7 +27,8 @@ func main() {
 	writeFile("last-call", strings.Join(flag.Args(), " "))
 	if *flEngine {
 		if err := engineMain(flag.Args()); err != nil {
-			log.Fatal(err)
+			Fatalf("Failed to execute engine command '%s': %s",
+				strings.Join(flag.Args(), " "), err)
 		}
 		os.Exit(0)
 	}
@@ -39,17 +39,17 @@ func main() {
 
 	c, err  := newRootContainer(".")
 	if err != nil {
-		log.Fatal(err)
+		Fatalf("Failed to setup root container: %s", err)
 	}
 	eng, err := NewEngine(c) // Pass the root container to the engine
 	if err != nil {
-		log.Fatal(err)
+		Fatalf("Failed to initialize engine: %s", err)
 	}
 	defer eng.Cleanup()
 	ready := make(chan bool)
 	go func() {
 		if err := eng.ListenAndServe(ready); err != nil {
-			log.Fatal(err)
+			Fatal(err)
 		}
 	}()
 	<-ready
@@ -59,7 +59,7 @@ func main() {
 		"wait",
 		"die",
 	); err != nil {
-		log.Fatal(err)
+		Fatalf("Error sending engine startup commands: %s", err)
 	}
 }
 
@@ -394,7 +394,7 @@ func (eng *Engine) ListenAndServe(ready chan bool) (err error) {
 		Debugf("Listening on %s\n", eng.Path("ctl"))
 		conn, err := l.Accept()
 		if err != nil {
-			log.Fatal(err)
+			Fatal(err)
 		}
 		Debugf("Received connection: %s", conn)
 		go eng.Serve(conn)
@@ -726,6 +726,18 @@ func Debugf(format string, a ...interface{}) {
 
 		fmt.Fprintf(os.Stderr, fmt.Sprintf("[%d] [debug] %s:%d %s\n", os.Getpid(), file, line, format), a...)
 	}
+}
+
+func Fatalf(format string, a ...interface{}) {
+	if len(format) > 0 && format[len(format) - 1] != '\n' {
+		format = format + "\n"
+	}
+	fmt.Fprintf(os.Stderr, fmt.Sprintf("[%d] Fatal: %s", os.Getpid(), format), a...)
+	os.Exit(1)
+}
+
+func Fatal(err error) {
+	Fatalf("%s", err)
 }
 
 
