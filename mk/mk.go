@@ -17,6 +17,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"runtime"
+	"sort"
 )
 
 func main() {
@@ -78,8 +79,11 @@ func (c *Container) Engine() (*Engine) {
 	}
 }
 
-func (c *Container) LS(dir string) ([]string, error) {
-	files, err := ioutil.ReadDir(c.Path(dir))
+// ls returns the contents of a directory as a list of filenames.
+// If the directory doesn't exist, it returns an empty list. Otherwise,
+// it returns the first error encountered.
+func ls(dir string) ([]string, error) {
+	files, err := ioutil.ReadDir(dir)
 	if os.IsNotExist(err) {
 		return []string{}, nil
 	} else if err != nil {
@@ -89,7 +93,14 @@ func (c *Container) LS(dir string) ([]string, error) {
 	for _, f := range files {
 		names = append(names, f.Name())
 	}
+	// FIXME: sort by date
+	// FIXME: configurable sorting
+	sort.Strings(names)
 	return names, nil
+}
+
+func (c *Container) LS(dir string) ([]string, error) {
+	return ls(c.Path(dir))
 }
 
 
@@ -570,6 +581,35 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 		} else if op.Name == "die" {
 			fmt.Fprintf(conn, "+OK\n")
 			return nil
+		} else if op.Name == "ls" {
+			containers, err := eng.List()
+			if err != nil {
+				return err
+			}
+			for _, cName := range containers {
+				fmt.Println(cName)
+			}
+		} else if op.Name == "ps" {
+			containers, err := eng.List()
+			if err != nil {
+				return err
+			}
+			for _, cName := range containers {
+				c, err := eng.Get(cName)
+				if err != nil {
+					Debugf("Can't load container %s\n", cName)
+					continue
+				}
+				commands, err := c.LS(".docker/run/exec")
+				for _, cmdName := range commands {
+					cmd, err := c.GetCommand(cmdName)
+					if err != nil {
+						Debugf("Can't load command %s:%s\n", cName, cmdName)
+						continue
+					}
+					fmt.Printf("%s:%s\t%s\n", c.Id, cmd.Name, strings.Join(cmd.Args, " "))
+				}
+			}
 		} else {
 			// If context is still not set, create an new empty container as context
 			if chain.context == nil {
@@ -646,6 +686,10 @@ func (eng *Engine) Create() (*Container, error) {
 		Id:	id,
 		Root:	eng.Path("/containers", id),
 	}, nil
+}
+
+func (eng *Engine) List() ([]string, error) {
+	return ls(eng.Path("/containers"))
 }
 
 
