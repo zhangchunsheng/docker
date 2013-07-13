@@ -347,7 +347,7 @@ func (c *Cmd) lockName() error {
 	// If no name is defined, allocate one
 	name, err := mkUniqueDir(c.container.Path(".docker/exec"))
 	if err != nil {
-		return nil
+		return err
 	}
 	c.Name = name
 	return nil
