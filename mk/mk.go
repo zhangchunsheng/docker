@@ -812,11 +812,14 @@ func readFile(src string) (content string, err error) {
 }
 
 func mkUniqueDir(parent string) (dir string, err error) {
+	if err := os.MkdirAll(parent, 0700); err != nil {
+		return "", err
+	}
 	var i int64
 	// FIXME: store a hint on disk to avoid scanning from 1 everytime
 	for i=0; i<1<<63 - 1; i+= 1 {
 		name := fmt.Sprintf("%d", i)
-		err := os.MkdirAll(path.Join(parent, name), 0700)
+		err := os.Mkdir(path.Join(parent, name), 0700)
 		if os.IsExist(err) {
 			continue
 		} else if err != nil {
