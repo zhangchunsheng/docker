@@ -169,7 +169,16 @@ func engineMain(args []string) error {
 			// FIXME: split in different number of parts depending on dockerfile command
 			// (this is to respect backwards compatibility with the current dockerfile format)
 			parts := strings.SplitN(line, " ", 2)
-			if err := eng.Ctl(parts); err != nil {
+			parts[0] = strings.ToLower(parts[0])
+			if parts[0] == "run" {
+				if len(parts) < 2 {
+					return fmt.Errorf("RUN build operation requires at least one argument")
+				}
+				err = eng.Ctl([]string{"exec", "/bin/sh", "-c", parts[1]})
+			} else {
+				err = eng.Ctl(parts)
+			}
+			if err != nil {
 				return err
 			}
 			if eof {
