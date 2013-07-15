@@ -148,6 +148,8 @@ func engineMain(args []string) error {
 			return err
 		}
 		// Execute a process into a container, using chroot
+	} else if args[0] == "info" {
+		fmt.Printf("Current container = %s\n", self.Root)
 	} else if args[0] == "serve" {
 		// Expose engine functionalities over the remote http api
 	} else if args[0] == "echo" {
