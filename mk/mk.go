@@ -25,7 +25,6 @@ func main() {
 	fmt.Printf("Main %s\n", os.Args)
 	flEngine := flag.Bool("e", false, "Engine mode")
 	flag.Parse()
-	writeFile("last-call", strings.Join(flag.Args(), " "))
 	if *flEngine {
 		if err := engineMain(flag.Args()); err != nil {
 			Fatalf("Failed to execute engine command '%s': %s",
