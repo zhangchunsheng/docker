@@ -21,7 +21,8 @@ import (
 )
 
 func main() {
-	Debugf("Main")
+//	os.Setenv("DEBUG", "1")
+	fmt.Printf("Main %s\n", os.Args)
 	flEngine := flag.Bool("e", false, "Engine mode")
 	flag.Parse()
 	writeFile("last-call", strings.Join(flag.Args(), " "))
@@ -60,6 +61,10 @@ func main() {
 	); err != nil {
 		Fatalf("Error sending engine startup commands: %s", err)
 	}
+}
+
+func log(format string, a...interface{}) (int, error) {
+	return fmt.Printf(fmt.Sprintf("[%d] %s", os.Getpid(), format), a...)
 }
 
 func CurrentContainer() (*Container, error) {
@@ -114,7 +119,7 @@ func engineMain(args []string) error {
 	}
 	eng := self.Engine()
 	if args[0] == "import" {
-		fmt.Printf("Importing from %s", args[1])
+		log("Importing from %s", args[1])
 		/*
 		// FIXME: pseudo-code
 		src := args[1]
@@ -169,7 +174,7 @@ func engineMain(args []string) error {
 			if len(line) == 0 || line[0] == '#' {
 				continue
 			}
-			fmt.Printf("build op '%s'\n", line)
+			log("build op '%s'\n", line)
 			// FIXME: split in different number of parts depending on dockerfile command
 			// (this is to respect backwards compatibility with the current dockerfile format)
 			parts := strings.SplitN(line, " ", 2)
@@ -408,7 +413,7 @@ func (eng *Engine) ListenAndServe(ready chan bool) (err error) {
 	l, err := net.Listen("unix", eng.Path("ctl"))
 	if err != nil {
 		if c, dialErr := net.Dial("unix", eng.Path("ctl")); dialErr != nil {
-			fmt.Printf("Cleaning up leftover unix socket\n")
+			Debugf("Cleaning up leftover unix socket\n")
 			os.Remove(eng.Path("ctl"))
 			l, err = net.Listen("unix", eng.Path("ctl"))
 			if err != nil {
@@ -593,7 +598,7 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 			if err != nil {
 				return err
 			}
-			Debugf("Committed %s to %s (not really)", src.Id, ctx.Id)
+			fmt.Printf("Committed %s to %s (not really)\n", src.Id, ctx.Id)
 			chain.context = ctx
 		} else if op.Name == "die" {
 			fmt.Fprintf(conn, "+OK\n")
@@ -637,7 +642,7 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 				chain.context = ctx
 			}
 			Debugf("Preparing to execute command in context %s", chain.context.Id)
-			// Execute command as a process inside the root container...
+			// Execute command as a process inside the current context...
 			cmd, err := eng.c0.NewCommand("", eng.c0.Path(".docker/bin/docker"), append([]string{"-e", op.Name}, op.Args...)...)
 			if err != nil {
 				return err
