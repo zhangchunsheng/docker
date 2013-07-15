@@ -153,8 +153,12 @@ func engineMain(args []string) error {
 			return err
 		}
 		lines := bufio.NewReader(dockerfile)
+		chain := [][]string{}
 		var eof bool
 		for {
+			if eof {
+				break
+			}
 			line, err := lines.ReadString('\n')
 			if err == io.EOF {
 				eof = true
@@ -174,17 +178,19 @@ func engineMain(args []string) error {
 				if len(parts) < 2 {
 					return fmt.Errorf("RUN build operation requires at least one argument")
 				}
-				err = eng.Ctl([]string{"exec", "/bin/sh", "-c", parts[1]})
-			} else {
-				err = eng.Ctl(parts)
+				parts = []string{"exec", "/bin/sh", "-c", parts[1]}
 			}
-			if err != nil {
-				return err
-			}
-			if eof {
-				break
-			}
+			chain = append(chain, parts)
 		}
+		if len(chain) == 0 {
+			fmt.Printf("Empty Dockerfile. Nothing to do.\n")
+			return nil
+		}
+		fmt.Printf("Parsed %d operations from Dockerfile. Sending to engine.\n", len(chain))
+		if err := eng.Ctl(chain...); err != nil {
+			return err
+		}
+		return nil
 	} else if args[0] == "expose" {
 		// Expose a TCP port
 	} else if args[0] == "connect" {
