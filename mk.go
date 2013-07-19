@@ -13,7 +13,6 @@ import (
 	"path"
 	"bufio"
 	"reflect"
-	"sort"
 )
 
 
@@ -32,30 +31,6 @@ func (c *Container) Engine() (*Engine) {
 	return &Engine{
 		c0: c,
 	}
-}
-
-// ls returns the contents of a directory as a list of filenames.
-// If the directory doesn't exist, it returns an empty list. Otherwise,
-// it returns the first error encountered.
-func ls(dir string) ([]string, error) {
-	files, err := ioutil.ReadDir(dir)
-	if os.IsNotExist(err) {
-		return []string{}, nil
-	} else if err != nil {
-		return nil, err
-	}
-	var names []string
-	for _, f := range files {
-		names = append(names, f.Name())
-	}
-	// FIXME: sort by date
-	// FIXME: configurable sorting
-	sort.Strings(names)
-	return names, nil
-}
-
-func (c *Container) LS(dir string) ([]string, error) {
-	return ls(c.Path(dir))
 }
 
 
@@ -503,7 +478,7 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 					Debugf("Can't load container %s\n", cName)
 					continue
 				}
-				commands, err := c.LS(".docker/run/exec")
+				commands, err := LS(c.Path(".docker/run/exec"))
 				for _, cmdName := range commands {
 					cmd, err := c.GetCommand(cmdName)
 					if err != nil {
@@ -593,7 +568,7 @@ func (eng *Engine) Create() (*Container, error) {
 }
 
 func (eng *Engine) List() ([]string, error) {
-	return ls(eng.Path("/containers"))
+	return LS(eng.Path("/containers"))
 }
 
 

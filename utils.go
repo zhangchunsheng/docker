@@ -12,6 +12,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"runtime"
+	"sort"
 )
 
 // Utils
@@ -83,6 +84,27 @@ func readFile(src string) (content string, err error) {
 	}
 	return string(data), nil
 }
+
+// ls returns the contents of a directory as a list of filenames.
+// If the directory doesn't exist, it returns an empty list. Otherwise,
+// it returns the first error encountered.
+func LS(dir string) ([]string, error) {
+	files, err := ioutil.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return []string{}, nil
+	} else if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, f := range files {
+		names = append(names, f.Name())
+	}
+	// FIXME: sort by date
+	// FIXME: configurable sorting
+	sort.Strings(names)
+	return names, nil
+}
+
 
 func mkUniqueDir(parent string, name string) (dir string, err error) {
 	if err := os.MkdirAll(parent, 0700); err != nil {

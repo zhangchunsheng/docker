@@ -79,7 +79,7 @@ func engineMain(args []string) error {
 		Untar(data, ".")
 		*/
 	} else if args[0] == "start" {
-		commands, err := self.LS(".docker/run/exec")
+		commands, err := docker.LS(self.Path(".docker/run/exec"))
 		if err != nil {
 			return err
 		}
