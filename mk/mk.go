@@ -211,21 +211,11 @@ func engineMain(args []string) error {
 	return nil
 }
 
-
 func newRootContainer(root string) (*Container, error) {
-	abspath, err := filepath.Abs(root)
+	c, err := NewContainer("0", root)
 	if err != nil {
 		return nil, err
 	}
-	c := &Container{
-		Root: abspath,
-		Id: "0",
-	}
-	if err := os.MkdirAll(c.Path(".docker"), 0700); err != nil && !os.IsExist(err) {
-		return nil, err
-	}
-	// ROOT/.docker didn't exist: set it up
-	defer func() { if err != nil { os.RemoveAll(c.Path(".docker")) } }()
 	// Generate an engine ID
 	if err := writeFile(c.Path(".docker/engine/id"), GenerateID() + "\n"); err != nil {
 		return nil, err
@@ -234,6 +224,24 @@ func newRootContainer(root string) (*Container, error) {
 	if err := symlink("../../..", c.Path(".docker/engine/containers/0")); err != nil {
 		return nil, err
 	}
+	return c, nil
+}
+
+func NewContainer(id, root string) (*Container, error) {
+	abspath, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	c := &Container{
+		Root: abspath,
+		Id: id,
+	}
+	// Create /.docker
+	if err := os.MkdirAll(c.Path(".docker"), 0700); err != nil && !os.IsExist(err) {
+		return nil, err
+	}
+	// /.docker didn't exist: set it up
+	defer func() { if err != nil { os.RemoveAll(c.Path(".docker")) } }()
 	// Setup .docker/bin/docker
 	if err := os.MkdirAll(c.Path(".docker/bin"), 0700); err != nil && !os.IsExist(err) {
 		return nil, err
@@ -270,65 +278,12 @@ func (c *Container) Path(p ...string) string {
 	return path.Join(append([]string{c.Root}, p...)...)
 }
 
-func (c *Container) NewCommand(name, path string, arg ...string) (*Cmd, error) {
-	Debugf("NewCommand()")
-	cmd := &Cmd{
-		Name:		name,
-		container:	c,
-		Cmd:		exec.Command(path, arg...),
-	}
-	if err := cmd.store(); err != nil {
-		return nil, err
-	}
-	return cmd, nil
-}
-
 func (c *Container) GetCommand(name string) (*Cmd, error) {
-	cmd := &Cmd{
-		Name:		name,
-		container:	c,
-		Cmd:		exec.Command(""), // This gets filled in by load()
-	}
-	if err := cmd.load(); err != nil {
-		return nil, err
-	}
-	return cmd, nil
-}
-
-func (cmd *Cmd) store() error {
-	Debugf("store()")
-	Debugf("Storing %s:%s on %s", cmd.container.Id, cmd.Name, cmd.path("/"))
-	if err := cmd.lockName(); err != nil {
-		return err
-	}
-	// Store command-line on disk
-	cmdline := []string{cmd.Path}
-	cmdline = append(cmdline, cmd.Args...)
-	if err := writeFile(cmd.path("cmd"), strings.Join(cmdline, "\x00")); err != nil {
-		return err
-	}
-	// Store env on disk
-	for _, kv := range cmd.Env {
-		parts := strings.SplitN(kv, "=", 2)
-		if len(parts) < 2 {
-			parts = append(parts, "")
-		}
-		if err := writeFile(cmd.path("env", parts[0]), parts[1]); err != nil {
-			return err
-		}
-	}
-	// Store working directory on disk
-	if err := writeFile(cmd.path("wd"), cmd.Dir); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (cmd *Cmd) load() error {
+	cmd := new(Cmd)
 	// Load command-line
-	cmdline, err := readFile(cmd.path("cmd"))
+	cmdline, err := readFile(c.Path("/.docker/run/exec", name, "cmd"))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cmdlineParts := strings.Split(cmdline, "\x00")
 	cmd.Path = cmdlineParts[0]
@@ -339,57 +294,142 @@ func (cmd *Cmd) load() error {
 	}
 	// FIXME: load env
 	// Load working directory
-	if wd, err := readFile(cmd.path("wd")); err != nil {
+	if wd, err := readFile(c.Path("/.docker/run/exec", name, "wd")); err != nil {
 		Debugf("No working directory")
 	} else {
 		cmd.Dir = wd
 	}
-	return nil
+	return cmd, nil
 }
 
-func (cmd *Cmd) path(p ...string) string {
-	prefix := []string{".docker/run/exec", cmd.Name}
-	return cmd.container.Path(append(prefix, p...)...)
-}
 
-func (c *Cmd) lockName() error {
-	if c.Name != "" {
-		return os.MkdirAll(c.path("/"), 0700)
-	}
-	// If no name is defined, allocate one
-	name, err := mkUniqueDir(c.container.Path(".docker/exec"))
+
+func (c *Container) SetCommand(name string, cmd *Cmd) (string, error) {
+	var err error
+	name, err = mkUniqueDir(c.Path("/.docker/run/exec"), name)
 	if err != nil {
-		return err
+		return "", err
 	}
-	c.Name = name
-	return nil
-}
-
-func (c *Container) baseEnv() []string {
-	var paths []string
-	for _, a := range []string{"/usr/local", "/usr", "/"} {
-		for _, b := range []string{"bin", "sbin"} {
-			paths = append(paths, path.Join(c.Root, a, b))
+	Debugf("Storing %s:%s on %s", c.Id, name, c.Path("/.docker/run/exec", name))
+	// Store command-line on disk
+	cmdline := []string{cmd.Path}
+	cmdline = append(cmdline, cmd.Args...)
+	if err := writeFile(c.Path("/.docker/run/exec", name, "cmd"), strings.Join(cmdline, "\x00")); err != nil {
+		return "", err
+	}
+	// Store env on disk
+	for _, kv := range cmd.Env {
+		parts := strings.SplitN(kv, "=", 2)
+		if len(parts) < 2 {
+			parts = append(parts, "")
+		}
+		if err := writeFile(c.Path("/.docker/run/exec", name, "env", parts[0]), parts[1]); err != nil {
+			return "", err
 		}
 	}
-	return []string{
-		"HOME=" + c.Root,
-		"PATH=" + strings.Join(paths, ":"),
+	// Store working directory on disk
+	if err := writeFile(c.Path("/.docker/run/exec", name, "wd"), cmd.Dir); err != nil {
+		return "", err
 	}
+	return name, nil
 }
+
+
+var BaseEnv = []string{
+	"HOME=/",
+	"PATH=/.docker/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin",
+	// DOCKER_ROOT points to the root of the container
+	// In a chrooted environment, this would default to /
+	"DOCKER_ROOT=/",
+}
+
+// NewEnv creates a new environment for use by a containerized process.
+func NewEnv(prefix string, override ...string) (env []string) {
+	for _, kv := range append(BaseEnv, override...) {
+		parts := strings.SplitN(kv, "=", 2)
+		if len(parts) < 2 {
+			parts = append(parts, "")
+		}
+		key, value := parts[0], parts[1]
+		if key == "HOME" || key == "DOCKER_ROOT" {
+			value = path.Join(prefix, value)
+		} else if key == "PATH" {
+			searchPath := strings.Split(value, ":")
+			for i := range strings.Split(value, ":") { // Don't use filepath.SplitList, it depends on host system
+				searchPath[i] = path.Join(prefix, searchPath[i])
+			}
+			value = strings.Join(searchPath, ":")
+		}
+		env = append(env, key + "=" + value)
+	}
+	return
+}
+
+
+func getenv(key string, env []string) (value string) {
+	for _, kv := range env {
+		if strings.Index(kv, "=") == -1 {
+			continue
+		}
+		parts := strings.SplitN(kv, "=", 2)
+		if parts[0] != key {
+			continue
+		}
+		if len(parts) < 2 {
+			value = ""
+		} else {
+			value = parts[1]
+		}
+	}
+	return
+}
+
+func lookPath(target string, env []string) (string, error) {
+	if filepath.IsAbs(target) {
+		return target, nil
+	}
+	for _, searchPath := range filepath.SplitList(getenv("PATH", env)) {
+		Debugf("Searching for %s in %s", target, searchPath)
+		p := path.Join(searchPath, target)
+		if st, err := os.Stat(p); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return "", err
+		} else {
+			if st.IsDir() {
+				continue
+			}
+			Debugf("Found it! %s", p)
+			// FIXME: check for executable bit
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("executable file not found in $PATH")
+}
+
+
+
 
 type Cmd struct {
-	*exec.Cmd
-	Name		string
-	container	*Container
+	Path		string
+	Args		[]string
+	Env		[]string
+	Dir		string
 }
 
-func (cmd *Cmd) Run() error {
-	cmd.Dir = cmd.container.Path(cmd.Dir)
-	cmd.Env = append(cmd.container.baseEnv(), cmd.Env...)
-	return cmd.Cmd.Run()
-}
 
+func (cmd *Cmd) Run(root string) (*exec.Cmd, error) {
+	realEnv := NewEnv(root, cmd.Env...)
+	realPath, err := lookPath(cmd.Path, realEnv)
+	if err != nil {
+		return nil, err
+	}
+	ps := exec.Command(realPath, cmd.Args...)
+	ps.Env = realEnv
+	ps.Dir = path.Join(root, cmd.Dir) // FIXME: this is vulnerable to untrusted input, ../.. etc.
+	Debugf("Running %s in %s with PATH=%s", ps.Path, ps.Dir, getenv("PATH", ps.Env))
+	return ps, nil
+}
 
 // Engine
 
@@ -630,7 +670,7 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 						Debugf("Can't load command %s:%s\n", cName, cmdName)
 						continue
 					}
-					fmt.Printf("%s:%s\t%s\n", c.Id, cmd.Name, strings.Join(cmd.Args, " "))
+					fmt.Printf("%s:%s\t%s\n", c.Id, cmdName, strings.Join(cmd.Args, " "))
 				}
 			}
 		} else {
@@ -643,22 +683,26 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 				chain.context = ctx
 			}
 			Debugf("Preparing to execute command in context %s", chain.context.Id)
-			// Execute command as a process inside the current context...
-			cmd, err := eng.c0.NewCommand("", eng.c0.Path(".docker/bin/docker"), append([]string{"-e", op.Name}, op.Args...)...)
+			cmd := new(Cmd)
+			cmd.Path = "docker"
+			cmd.Args = []string{"-e", op.Name}
+			cmd.Args = append(cmd.Args, op.Args...)
+			// ...with the current context as cwd
+			// (relative to the container)
+			cmd.Dir = "/.docker/engine/containers/" + chain.context.Id
+			_, err := chain.context.SetCommand("", cmd)
 			if err != nil {
 				return err
 			}
-			// ...with the current context as cwd
-			// (relative to the container)
-			cmd.Dir = ".docker/engine/containers/" + chain.context.Id
-			Debugf("Container will be run in %s", cmd.Dir)
-			// DOCKER_ROOT points to the root of the container
-			// In a chrooted environment, this would default to /
-			cmd.Env = append(cmd.Env, "DOCKER_ROOT=" + eng.c0.Root)
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
+			// Execute command as a process inside c0
+			ps, err := cmd.Run(eng.c0.Root)
+			if err != nil {
+				return err
+			}
+			ps.Stdout = os.Stdout
+			ps.Stderr = os.Stderr
 			Debugf("Starting command")
-			if err := cmd.Run(); err != nil {
+			if err := ps.Run(); err != nil {
 				return err
 			}
 			Debugf("Command returned")
@@ -700,15 +744,12 @@ func (eng *Engine) Get(name string) (*Container, error) {
 
 func (eng *Engine) Create() (*Container, error) {
 	// FIXME: create from a parent, nested naming etc.
-	id, err := mkUniqueDir(eng.Path("/containers"))
+	id, err := mkUniqueDir(eng.Path("/containers"), "")
 	if err != nil {
 		return nil, err
 	}
 	Debugf("Created new container: %s at root %s", id, eng.Path("/containers", id))
-	return &Container{
-		Id:	id,
-		Root:	eng.Path("/containers", id),
-	}, nil
+	return NewContainer(id, eng.Path("/containers", id))
 }
 
 func (eng *Engine) List() ([]string, error) {
@@ -823,14 +864,20 @@ func readFile(src string) (content string, err error) {
 	return string(data), nil
 }
 
-func mkUniqueDir(parent string) (dir string, err error) {
+func mkUniqueDir(parent string, name string) (dir string, err error) {
 	if err := os.MkdirAll(parent, 0700); err != nil {
 		return "", err
 	}
 	var i int64
+	if name != "" {
+		if err := os.Mkdir(path.Join(parent, name), 0700); err != nil {
+			return "", err
+		}
+		return name, nil
+	}
 	// FIXME: store a hint on disk to avoid scanning from 1 everytime
 	for i=0; i<1<<63 - 1; i+= 1 {
-		name := fmt.Sprintf("%d", i)
+		name = fmt.Sprintf("%d", i)
 		err := os.Mkdir(path.Join(parent, name), 0700)
 		if os.IsExist(err) {
 			continue
