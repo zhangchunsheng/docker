@@ -37,7 +37,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	c, err  := newRootContainer(".")
+	c, err  := NewContainer("0", ".")
 	if err != nil {
 		Fatalf("Failed to setup root container: %s", err)
 	}
@@ -209,22 +209,6 @@ func engineMain(args []string) error {
 		return fmt.Errorf("Unknown command: '%s'", args[0])
 	}
 	return nil
-}
-
-func newRootContainer(root string) (*Container, error) {
-	c, err := NewContainer("0", root)
-	if err != nil {
-		return nil, err
-	}
-	// Generate an engine ID
-	if err := writeFile(c.Path(".docker/engine/id"), GenerateID() + "\n"); err != nil {
-		return nil, err
-	}
-	// Link containers/0 to the root container
-	if err := symlink("../../..", c.Path(".docker/engine/containers/0")); err != nil {
-		return nil, err
-	}
-	return c, nil
 }
 
 func NewContainer(id, root string) (*Container, error) {
@@ -439,6 +423,14 @@ type Engine struct {
 }
 
 func NewEngine(c0 *Container) (*Engine, error) {
+	// Generate an engine ID
+	if err := writeFile(c0.Path(".docker/engine/id"), GenerateID() + "\n"); err != nil {
+		return nil, err
+	}
+	// Link containers/0 to the root container
+	if err := symlink("../../..", c0.Path(".docker/engine/containers/0")); err != nil {
+		return nil, err
+	}
 	return &Engine{
 		c0: c0,
 	}, nil
