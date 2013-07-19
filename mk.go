@@ -17,10 +17,6 @@ import (
 )
 
 
-func Log(format string, a...interface{}) (int, error) {
-	return fmt.Printf(fmt.Sprintf("[%d] %s", os.Getpid(), format), a...)
-}
-
 func CurrentContainer() (*Container, error) {
 	root := os.Getenv("DOCKER_ROOT")
 	if root == "" {

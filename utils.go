@@ -141,4 +141,6 @@ func Fatal(err error) {
 }
 
 
-
+func Log(format string, a...interface{}) (int, error) {
+	return fmt.Printf(fmt.Sprintf("[%d] %s", os.Getpid(), format), a...)
+}
