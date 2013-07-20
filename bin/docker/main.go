@@ -48,11 +48,19 @@ func main() {
 		}
 	}()
 	<-ready
-	if err := eng.Ctl(
-		[]string{"in", "0"},
-		flag.Args(),
-		[]string{"die"},
-	); err != nil {
+	var ops [][]string
+	ops = append(ops, []string{"in", "0"})
+	if flag.Arg(0) == "-" {
+		if o, err := docker.ParseDockerfile(os.Stdin); err != nil {
+			docker.Fatal(err)
+		} else {
+			ops = append(ops, o...)
+		}
+	} else {
+		ops = append(ops, flag.Args())
+	}
+	ops = append(ops, []string{"die"})
+	if err := eng.Ctl(ops...); err != nil {
 		docker.Fatalf("Error sending engine startup commands: %s", err)
 	}
 }
