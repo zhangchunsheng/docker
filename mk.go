@@ -608,7 +608,6 @@ func (chain *Chain) CmdImport(args ...string) (err error) {
 	return nil
 }
 
-
 //
 // ENGINE COMMANDS
 //

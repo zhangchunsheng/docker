@@ -7,7 +7,6 @@ import (
 	"strings"
 	"io"
 	"os/exec"
-	"bufio"
 	"github.com/dotcloud/docker"
 	"net/http"
 	"net/url"
@@ -127,35 +126,9 @@ func engineMain(args []string) error {
 		if err != nil {
 			return err
 		}
-		lines := bufio.NewReader(dockerfile)
-		chain := [][]string{}
-		var eof bool
-		for {
-			if eof {
-				break
-			}
-			line, err := lines.ReadString('\n')
-			if err == io.EOF {
-				eof = true
-			} else if err != nil {
-				return err
-			}
-			line = strings.Trim(line, "\n")
-			if len(line) == 0 || line[0] == '#' {
-				continue
-			}
-			docker.Log("build op '%s'\n", line)
-			// FIXME: split in different number of parts depending on dockerfile command
-			// (this is to respect backwards compatibility with the current dockerfile format)
-			parts := strings.SplitN(line, " ", 2)
-			parts[0] = strings.ToLower(parts[0])
-			if parts[0] == "run" {
-				if len(parts) < 2 {
-					return fmt.Errorf("RUN build operation requires at least one argument")
-				}
-				parts = []string{"exec", "/bin/sh", "-c", parts[1]}
-			}
-			chain = append(chain, parts)
+		chain, err := docker.ParseDockerfile(dockerfile)
+		if err != nil {
+			return err
 		}
 		if len(chain) == 0 {
 			fmt.Printf("Empty Dockerfile. Nothing to do.\n")
