@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"bufio"
 	"github.com/dotcloud/docker"
+	"net/http"
+	"net/url"
 )
 
 
@@ -66,18 +68,37 @@ func engineMain(args []string) error {
 	}
 	eng := self.Engine()
 	if args[0] == "import" {
-		docker.Log("Importing from %s", args[1])
-		/*
-		// FIXME: pseudo-code
 		src := args[1]
-		var data io.Reader
+		docker.Log("Importing from %s", src)
+
+		var archive io.Reader
+		var resp *http.Response
+
 		if src == "-" {
-			data = os.Stdin
+			archive = os.Stdin
 		} else {
-			data = http.Get(src)
+			u, err := url.Parse(src)
+			if err != nil {
+				return err
+			}
+			if u.Scheme == "" {
+				u.Scheme = "http"
+				u.Host = src
+				u.Path = ""
+			}
+			docker.Log("Downloading from %s", u)
+			resp, err = docker.Download(u.String(), os.Stderr)
+			if err != nil {
+				return err
+			}
+			// FIXME: print a progress bar
+			archive = resp.Body
 		}
-		Untar(data, ".")
-		*/
+		// Unpack the archive in the current directory
+		if err := docker.Untar(archive, "."); err != nil {
+			return err
+		}
+		return nil
 	} else if args[0] == "start" {
 		commands, err := docker.LS(self.Path(".docker/run/exec"))
 		if err != nil {

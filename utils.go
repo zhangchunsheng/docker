@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"runtime"
 	"sort"
+	"net/http"
 )
 
 // Utils
@@ -165,4 +166,17 @@ func Fatal(err error) {
 
 func Log(format string, a...interface{}) (int, error) {
 	return fmt.Printf(fmt.Sprintf("[%d] %s", os.Getpid(), format), a...)
+}
+
+// Request a given URL and return an io.Reader
+func Download(url string, stderr io.Writer) (*http.Response, error) {
+	var resp *http.Response
+	var err error
+	if resp, err = http.Get(url); err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("Got HTTP status code >= 400: " + resp.Status)
+	}
+	return resp, nil
 }
