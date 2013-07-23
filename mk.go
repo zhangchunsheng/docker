@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path"
 	"bufio"
-	"reflect"
 )
 
 
@@ -436,93 +435,15 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 		//   BECAUSE we need to support chaining of commands on the same connection...
 		//   BECAUSE chaining of commands is the only practical way to pass a container between commands
 		//op.Stdin = reader
-		fmt.Printf("---> %s %s\n", op.Name, op.Args)
-		// IN and FROM affect the context
-		if op.Name == "in" {
-			ctx, err := eng.Get(op.Args[0])
-			if err != nil {
-				return err
-			}
-			chain.context = ctx
-		} else if op.Name == "from" {
-			src, err := eng.Get(op.Args[0])
-			if err != nil {
-				return err
-			}
-			// FIXME: implement actual COMMIT of src into ctx
-			ctx, err := eng.Create()
-			if err != nil {
-				return err
-			}
-			fmt.Printf("Committed %s to %s (not really)\n", src.Id, ctx.Id)
-			chain.context = ctx
-		} else if op.Name == "die" {
+		// Send a successful reply
+		if op.Name == "die" {
+			// DIE interrupts the session and returns
+			// FIXME: this is deprecated by initial commands
 			fmt.Fprintf(conn, "+OK\n")
 			return nil
-		} else if op.Name == "ls" {
-			containers, err := eng.List()
-			if err != nil {
-				return err
-			}
-			for _, cName := range containers {
-				fmt.Println(cName)
-			}
-		} else if op.Name == "ps" {
-			containers, err := eng.List()
-			if err != nil {
-				return err
-			}
-			for _, cName := range containers {
-				c, err := eng.Get(cName)
-				if err != nil {
-					Debugf("Can't load container %s\n", cName)
-					continue
-				}
-				commands, err := LS(c.Path(".docker/run/exec"))
-				for _, cmdName := range commands {
-					cmd, err := c.GetCommand(cmdName)
-					if err != nil {
-						Debugf("Can't load command %s:%s\n", cName, cmdName)
-						continue
-					}
-					fmt.Printf("%s:%s\t%s\n", c.Id, cmdName, strings.Join(cmd.Args, " "))
-				}
-			}
-		} else {
-			// If context is still not set, create an new empty container as context
-			if chain.context == nil {
-				ctx, err := eng.Create()
-				if err != nil {
-					return err
-				}
-				chain.context = ctx
-			}
-			Debugf("Preparing to execute command in context %s", chain.context.Id)
-			cmd := new(Cmd)
-			cmd.Path = "docker"
-			cmd.Args = []string{"-e", op.Name}
-			cmd.Args = append(cmd.Args, op.Args...)
-			// ...with the current context as cwd
-			// (relative to the container)
-			cmd.Dir = "/.docker/engine/containers/" + chain.context.Id
-			_, err := chain.context.SetCommand("", cmd)
-			if err != nil {
-				return err
-			}
-			// Execute command as a process inside c0
-			ps, err := cmd.Run(eng.c0.Root)
-			if err != nil {
-				return err
-			}
-			ps.Stdout = os.Stdout
-			ps.Stderr = os.Stderr
-			Debugf("Starting command")
-			if err := ps.Run(); err != nil {
-				return err
-			}
-			Debugf("Command returned")
+		} else if err := chain.Do(&op); err != nil {
+			return err
 		}
-		// Send a successful reply
 		Debugf("Sending OK")
 		fmt.Fprintf(conn, "+OK\n")
 	}
@@ -582,34 +503,96 @@ type Op struct {
 
 // Chain
 
+// FIXME: rename chain to session
 type Chain struct {
 	context	*Container
 	engine	*Engine
 }
 
-func (chain *Chain) getMethod(name string) (reflect.Method, bool) {
-	methodName := "Cmd" + strings.ToUpper(name[:1]) + strings.ToLower(name[1:])
-	return reflect.TypeOf(chain).MethodByName(methodName)
-}
-
-
-func (chain *Chain) CmdStart(args ...string) (err error) {
-	if chain.context == nil {
-		return fmt.Errorf("No context set")
+// Execute a command
+func (chain *Chain) Do(op *Op) error {
+	fmt.Printf("---> %s %s\n", op.Name, op.Args)
+	// IN and FROM affect the context
+	if op.Name == "in" {
+		ctx, err := chain.engine.Get(op.Args[0])
+		if err != nil {
+			return err
+		}
+		chain.context = ctx
+	} else if op.Name == "from" {
+		src, err := chain.engine.Get(op.Args[0])
+		if err != nil {
+			return err
+		}
+		// FIXME: implement actual COMMIT of src into ctx
+		ctx, err := chain.engine.Create()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Committed %s to %s (not really)\n", src.Id, ctx.Id)
+		chain.context = ctx
+	} else if op.Name == "ls" {
+		containers, err := chain.engine.List()
+		if err != nil {
+			return err
+		}
+		for _, cName := range containers {
+			fmt.Println(cName)
+		}
+	} else if op.Name == "ps" {
+		containers, err := chain.engine.List()
+		if err != nil {
+			return err
+		}
+		for _, cName := range containers {
+			c, err := chain.engine.Get(cName)
+			if err != nil {
+				Debugf("Can't load container %s\n", cName)
+				continue
+			}
+			commands, err := LS(c.Path(".docker/run/exec"))
+			for _, cmdName := range commands {
+				cmd, err := c.GetCommand(cmdName)
+				if err != nil {
+					Debugf("Can't load command %s:%s\n", cName, cmdName)
+					continue
+				}
+				fmt.Printf("%s:%s\t%s\n", c.Id, cmdName, strings.Join(cmd.Args, " "))
+			}
+		}
+	} else {
+		// If context is still not set, create an new empty container as context
+		if chain.context == nil {
+			ctx, err := chain.engine.Create()
+			if err != nil {
+				return err
+			}
+			chain.context = ctx
+		}
+		Debugf("Preparing to execute command in context %s", chain.context.Id)
+		cmd := new(Cmd)
+		cmd.Path = "docker"
+		cmd.Args = []string{"-e", op.Name}
+		cmd.Args = append(cmd.Args, op.Args...)
+		// ...with the current context as cwd
+		// (relative to the container)
+		cmd.Dir = "/.docker/engine/containers/" + chain.context.Id
+		_, err := chain.context.SetCommand("", cmd)
+		if err != nil {
+			return err
+		}
+		// Execute command as a process inside c0
+		ps, err := cmd.Run(chain.engine.c0.Root)
+		if err != nil {
+			return err
+		}
+		ps.Stdout = os.Stdout
+		ps.Stderr = os.Stderr
+		Debugf("Starting command")
+		if err := ps.Run(); err != nil {
+			return err
+		}
+		Debugf("Command returned")
 	}
-	// Iterate on commands
-	// For each command, call CmdExec
-	// Check if already running
-	return fmt.Errorf("No yet implemented") // FIXME
-}
-
-func (chain *Chain) CmdImport(args ...string) (err error) {
-	fmt.Printf("Importing %s...\n", args[0])
 	return nil
 }
-
-//
-// ENGINE COMMANDS
-//
-
-
