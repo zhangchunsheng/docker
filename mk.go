@@ -557,7 +557,7 @@ func (chain *Chain) Do(op *Op) error {
 					Debugf("Can't load command %s:%s\n", cName, cmdName)
 					continue
 				}
-				fmt.Printf("%s:%s\t%s\n", c.Id, cmdName, strings.Join(cmd.Args, " "))
+				fmt.Printf("%s:%s\t%s %s\n", c.Id, cmdName, cmd.Path, strings.Join(cmd.Args, " "))
 			}
 		}
 	} else {
