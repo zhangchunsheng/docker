@@ -362,7 +362,7 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 		conn.Close()
 	}()
 	reader := bufio.NewReader(conn)
-	chain := eng.Chain()
+	session := eng.Session()
 	for {
 		// FIXME: commit the current container before each command
 		Debugf("Reading command...")
@@ -441,7 +441,7 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 			// FIXME: this is deprecated by initial commands
 			fmt.Fprintf(conn, "+OK\n")
 			return nil
-		} else if err := chain.Do(&op); err != nil {
+		} else if err := session.Do(&op); err != nil {
 			return err
 		}
 		Debugf("Sending OK")
@@ -455,8 +455,8 @@ func (eng *Engine) Path(p ...string) string {
 	return eng.c0.Path(append([]string{".docker/engine"}, p...)...)
 }
 
-func (eng *Engine) Chain() *Chain {
-	return &Chain{
+func (eng *Engine) Session() *Session {
+	return &Session{
 		engine: eng,
 	}
 }
@@ -501,38 +501,37 @@ type Op struct {
 	Args	[]string
 }
 
-// Chain
+// Session
 
-// FIXME: rename chain to session
-type Chain struct {
+type Session struct {
 	context	*Container
 	engine	*Engine
 }
 
 // Execute a command
-func (chain *Chain) Do(op *Op) error {
+func (session *Session) Do(op *Op) error {
 	fmt.Printf("---> %s %s\n", op.Name, op.Args)
 	// IN and FROM affect the context
 	if op.Name == "in" {
-		ctx, err := chain.engine.Get(op.Args[0])
+		ctx, err := session.engine.Get(op.Args[0])
 		if err != nil {
 			return err
 		}
-		chain.context = ctx
+		session.context = ctx
 	} else if op.Name == "from" {
-		src, err := chain.engine.Get(op.Args[0])
+		src, err := session.engine.Get(op.Args[0])
 		if err != nil {
 			return err
 		}
 		// FIXME: implement actual COMMIT of src into ctx
-		ctx, err := chain.engine.Create()
+		ctx, err := session.engine.Create()
 		if err != nil {
 			return err
 		}
 		fmt.Printf("Committed %s to %s (not really)\n", src.Id, ctx.Id)
-		chain.context = ctx
+		session.context = ctx
 	} else if op.Name == "ls" {
-		containers, err := chain.engine.List()
+		containers, err := session.engine.List()
 		if err != nil {
 			return err
 		}
@@ -540,12 +539,12 @@ func (chain *Chain) Do(op *Op) error {
 			fmt.Println(cName)
 		}
 	} else if op.Name == "ps" {
-		containers, err := chain.engine.List()
+		containers, err := session.engine.List()
 		if err != nil {
 			return err
 		}
 		for _, cName := range containers {
-			c, err := chain.engine.Get(cName)
+			c, err := session.engine.Get(cName)
 			if err != nil {
 				Debugf("Can't load container %s\n", cName)
 				continue
@@ -562,27 +561,27 @@ func (chain *Chain) Do(op *Op) error {
 		}
 	} else {
 		// If context is still not set, create an new empty container as context
-		if chain.context == nil {
-			ctx, err := chain.engine.Create()
+		if session.context == nil {
+			ctx, err := session.engine.Create()
 			if err != nil {
 				return err
 			}
-			chain.context = ctx
+			session.context = ctx
 		}
-		Debugf("Preparing to execute command in context %s", chain.context.Id)
+		Debugf("Preparing to execute command in context %s", session.context.Id)
 		cmd := new(Cmd)
 		cmd.Path = "docker"
 		cmd.Args = []string{"-e", op.Name}
 		cmd.Args = append(cmd.Args, op.Args...)
 		// ...with the current context as cwd
 		// (relative to the container)
-		cmd.Dir = "/.docker/engine/containers/" + chain.context.Id
-		_, err := chain.context.SetCommand("", cmd)
+		cmd.Dir = "/.docker/engine/containers/" + session.context.Id
+		_, err := session.context.SetCommand("", cmd)
 		if err != nil {
 			return err
 		}
 		// Execute command as a process inside c0
-		ps, err := cmd.Run(chain.engine.c0.Root)
+		ps, err := cmd.Run(session.engine.c0.Root)
 		if err != nil {
 			return err
 		}
