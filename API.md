@@ -106,3 +106,9 @@ For example, use tags to automatically configure a load-balancer.
 ### Scoping and multi-tenancy
 
 Give each developer his own 'git push' entrypoint.
+
+
+### Post-creation hook for service registration
+
+	* @benoitc needs a post-creation hook to register containers in his "hub"
+	* @titanous needs the same thing for registration in flynn
