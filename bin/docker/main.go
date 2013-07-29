@@ -76,7 +76,7 @@ func engineMain(args []string) error {
 	eng := self.Engine()
 	if args[0] == "import" {
 		src := args[1]
-		docker.Log("Importing from %s", src)
+		docker.Log("Importing from %s\n", src)
 
 		var archive io.Reader
 		var resp *http.Response
@@ -93,7 +93,7 @@ func engineMain(args []string) error {
 				u.Host = src
 				u.Path = ""
 			}
-			docker.Log("Downloading from %s", u)
+			docker.Log("Downloading from %s\n", u)
 			resp, err = docker.Download(u.String(), os.Stderr)
 			if err != nil {
 				return err
