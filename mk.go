@@ -488,6 +488,14 @@ func (eng *Engine) Create(parent string) (*Container, error) {
 	return NewContainer(id, eng.Path("/containers", id))
 }
 
+func (eng *Engine) Alias(name, target string) (*Container, error) {
+	// FIXME don't allow numbers
+	if err := os.Symlink(eng.Path("/containers", name), target); err != nil {
+		return nil, err
+	}
+	return eng.Get(name)
+}
+
 func (eng *Engine) List() ([]string, error) {
 	return LS(eng.Path("/containers"))
 }
