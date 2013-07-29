@@ -505,7 +505,7 @@ func (eng *Engine) Create(parent string) (*Container, error) {
 
 func (eng *Engine) Alias(name, target string) (*Container, error) {
 	// FIXME don't allow numbers
-	if err := os.Symlink(eng.Path("/containers", name), target); err != nil {
+	if err := os.Symlink(target, eng.Path("/containers", name)); err != nil {
 		return nil, err
 	}
 	return eng.Get(name)
