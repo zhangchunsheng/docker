@@ -90,3 +90,6 @@ Version 1.0alpha1
 ### Better discovery of a container's ports
 
 	* "If you don't want me to hardcode public ports in my Dockerfile, make it easier to find the ports of my containers!"
+
+### Cross-platform containers
+
