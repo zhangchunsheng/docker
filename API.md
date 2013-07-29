@@ -93,3 +93,11 @@ Version 1.0alpha1
 
 ### Cross-platform containers
 
+
+### Naming containers
+
+See github issue #1.
+
+### Grouping and tagging containers for operations
+
+For example, use tags to automatically configure a load-balancer.
