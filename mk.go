@@ -56,17 +56,6 @@ func NewContainer(id, root string) (*Container, error) {
 	if err := exec.Command("cp", SelfPath(), c.Path(".docker/bin/docker")).Run(); err != nil {
 		return nil, err
 	}
-	// Setup .docker/bin/*
-	for _, cmd := range []string {
-		"exec",
-		"start",
-		"stop",
-		"commit",
-	} {
-		if err := symlink("docker", c.Path(".docker/bin", cmd)); err != nil {
-			return nil, err
-		}
-	}
 	return c, nil
 }
 
