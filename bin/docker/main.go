@@ -49,7 +49,6 @@ func main() {
 	}()
 	<-ready
 	var ops [][]string
-	ops = append(ops, []string{"in", "0"})
 	if flag.Arg(0) == "-" {
 		if o, err := docker.ParseDockerfile(os.Stdin); err != nil {
 			docker.Fatal(err)

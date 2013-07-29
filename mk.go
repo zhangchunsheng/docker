@@ -298,7 +298,14 @@ func (eng *Engine) ListenAndServe(ready chan bool) (err error) {
 			Fatal(err)
 		}
 		Debugf("Received connection: %s", conn)
-		go eng.Serve(conn)
+		go func(conn io.ReadWriteCloser) {
+			s, err := eng.NewSession(conn, eng.c0)
+			if err != nil {
+				fmt.Printf("Error creating new session: %s\n", err)
+				return
+			}
+			s.Serve()
+		}(conn)
 	}
 }
 
@@ -351,81 +358,87 @@ func (eng *Engine) Ctl(ops ...[]string) error {
 	return nil
 }
 
-func (eng *Engine) Serve(conn net.Conn) (err error) {
-	defer func() {
+func (s *Session) ReadOp() (*Op, error) {
+	// FIXME: commit the current container before each command
+	Debugf("Reading command...")
+	var nArg int
+	line, err := s.reader.ReadString('\r')
+	if err != nil {
+		return nil, err
+	}
+	Debugf("line == '%s'", line)
+	if len(line) < 1 || line[len(line) - 1] != '\r' {
+		return nil, fmt.Errorf("Malformed request: doesn't start with '*<nArg>\\r\\n'. %s", err)
+	}
+	line = line[:len(line) - 1]
+	if _, err := fmt.Sscanf(line, "*%d", &nArg); err != nil {
+		return nil, fmt.Errorf("Malformed request: '%s' doesn't start with '*<nArg>'. %s", line, err)
+	}
+	Debugf("nArg = %d", nArg)
+	nl := make([]byte, 1)
+	if _, err := s.reader.Read(nl); err != nil {
+		return nil, err
+	} else if nl[0] != '\n' {
+		return nil, fmt.Errorf("Malformed request: expected '%x', got '%x'", '\n', nl[0])
+	}
+	var op Op
+	for i:=0; i<nArg; i+=1 {
+		Debugf("\n-------\nReading arg %d/%d", i + 1, nArg)
+		// FIXME: specify int size?
+		var argSize int64
+
+		line, err := s.reader.ReadString('\r')
 		if err != nil {
-			fmt.Fprintf(conn, "-%s\n", err)
-		}
-		conn.Close()
-	}()
-	reader := bufio.NewReader(conn)
-	session := eng.Session()
-	for {
-		// FIXME: commit the current container before each command
-		Debugf("Reading command...")
-		var nArg int
-		line, err := reader.ReadString('\r')
-		if err != nil {
-			return err
+			return nil, err
 		}
 		Debugf("line == '%s'", line)
 		if len(line) < 1 || line[len(line) - 1] != '\r' {
-			return fmt.Errorf("Malformed request: doesn't start with '*<nArg>\\r\\n'. %s", err)
+			return nil, fmt.Errorf("Malformed request: doesn't start with '$<nArg>\\r\\n'. %s", err)
 		}
 		line = line[:len(line) - 1]
-		if _, err := fmt.Sscanf(line, "*%d", &nArg); err != nil {
-			return fmt.Errorf("Malformed request: '%s' doesn't start with '*<nArg>'. %s", line, err)
+		if _, err := fmt.Sscanf(line, "$%d", &argSize); err != nil {
+			return nil, fmt.Errorf("Malformed request: '%s' doesn't start with '$<nArg>'. %s", line, err)
 		}
-		Debugf("nArg = %d", nArg)
+		Debugf("argSize= %d", argSize)
 		nl := make([]byte, 1)
-		if _, err := reader.Read(nl); err != nil {
-			return err
+		if _, err := s.reader.Read(nl); err != nil {
+			return nil, err
 		} else if nl[0] != '\n' {
-			return fmt.Errorf("Malformed request: expected '%x', got '%x'", '\n', nl[0])
+			return nil, fmt.Errorf("Malformed request: expected '%x', got '%x'", '\n', nl[0])
 		}
-		var op Op
-		for i:=0; i<nArg; i+=1 {
-			Debugf("\n-------\nReading arg %d/%d", i + 1, nArg)
-			// FIXME: specify int size?
-			var argSize int64
-
-			line, err := reader.ReadString('\r')
-			if err != nil {
-				return err
-			}
-			Debugf("line == '%s'", line)
-			if len(line) < 1 || line[len(line) - 1] != '\r' {
-				return fmt.Errorf("Malformed request: doesn't start with '$<nArg>\\r\\n'. %s", err)
-			}
-			line = line[:len(line) - 1]
-			if _, err := fmt.Sscanf(line, "$%d", &argSize); err != nil {
-				return fmt.Errorf("Malformed request: '%s' doesn't start with '$<nArg>'. %s", line, err)
-			}
-			Debugf("argSize= %d", argSize)
-			nl := make([]byte, 1)
-			if _, err := reader.Read(nl); err != nil {
-				return err
-			} else if nl[0] != '\n' {
-				return fmt.Errorf("Malformed request: expected '%x', got '%x'", '\n', nl[0])
-			}
 
 
-			// Read arg data
-			argData, err := ioutil.ReadAll(io.LimitReader(reader, argSize + 2))
-			if err != nil {
-				return err
-			} else if n := int64(len(argData)); n < argSize + 2 {
-				return fmt.Errorf("Malformed request: argument data #%d doesn't match declared size (expected %d bytes (%d + \r\n), read %d)", i, argSize + 2, argSize, n)
-			} else if string(argData[len(argData) - 2:]) != "\r\n" {
-				return fmt.Errorf("Malformed request: argument #%d doesn't end with \\r\\n", i)
-			}
-			arg := string(argData[:len(argData) - 2])
-			Debugf("arg = %s", arg)
-			if i == 0 {
-				op.Name = strings.ToLower(arg)
-			} else {
-				op.Args = append(op.Args, arg)
-			}
+		// Read arg data
+		argData, err := ioutil.ReadAll(io.LimitReader(s.reader, argSize + 2))
+		if err != nil {
+			return nil, err
+		} else if n := int64(len(argData)); n < argSize + 2 {
+			return nil, fmt.Errorf("Malformed request: argument data #%d doesn't match declared size (expected %d bytes (%d + \r\n), read %d)", i, argSize + 2, argSize, n)
+		} else if string(argData[len(argData) - 2:]) != "\r\n" {
+			return nil, fmt.Errorf("Malformed request: argument #%d doesn't end with \\r\\n", i)
+		}
+		arg := string(argData[:len(argData) - 2])
+		Debugf("arg = %s", arg)
+		if i == 0 {
+			op.Name = strings.ToLower(arg)
+		} else {
+			op.Args = append(op.Args, arg)
+		}
+	}
+	return &op, nil
+}
+
+func (s *Session) Serve() (err error) {
+	defer func() {
+		if err != nil {
+			fmt.Fprintf(s.conn, "-%s\n", err)
+		}
+		s.conn.Close()
+	}()
+	for {
+		op, err := s.ReadOp()
+		if err != nil {
+			return err
 		}
 		// Whatever is left of the connection is stdin
 		// FIXME: in order to pass stdin, it must be framed..
@@ -436,13 +449,13 @@ func (eng *Engine) Serve(conn net.Conn) (err error) {
 		if op.Name == "die" {
 			// DIE interrupts the session and returns
 			// FIXME: this is deprecated by initial commands
-			fmt.Fprintf(conn, "+OK\n")
+			fmt.Fprintf(s.conn, "+OK\n")
 			return nil
-		} else if err := session.Do(&op); err != nil {
+		} else if err := s.Do(op); err != nil {
 			return err
 		}
 		Debugf("Sending OK")
-		fmt.Fprintf(conn, "+OK\n")
+		fmt.Fprintf(s.conn, "+OK\n")
 	}
 	return nil
 }
@@ -452,10 +465,19 @@ func (eng *Engine) Path(p ...string) string {
 	return eng.c0.Path(append([]string{".docker/engine"}, p...)...)
 }
 
-func (eng *Engine) Session() *Session {
+func (eng *Engine) NewSession(conn io.ReadWriteCloser, root *Container) (*Session, error) {
+	// Create a new empty context for this session
+	context, err := eng.Create(root.Id)
+	if err != nil {
+		return nil, err
+	}
 	return &Session{
 		engine: eng,
-	}
+		conn: conn,
+		root: root,
+		context: context,
+		reader: bufio.NewReader(conn),
+	}, nil
 }
 
 func (eng *Engine) Get(name string) (*Container, error) {
@@ -512,8 +534,11 @@ type Op struct {
 // Session
 
 type Session struct {
+	conn	io.ReadWriteCloser
+	root	*Container
 	context	*Container
 	engine	*Engine
+	reader	*bufio.Reader
 }
 
 // Execute a command
