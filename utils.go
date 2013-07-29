@@ -59,17 +59,22 @@ func writeFile(dst, content string) error {
 	return nil
 }
 
-func symlink(newname, oldname string) error {
+func symlink(oldname, newname string) (err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("symlink: %s", err)
+		}
+	}()
 	// If it already exists, remove it. This emulates 'ln -s -f' behavior
 	// FIXME: this is prone to race condition.
-	if err := os.Remove(oldname); err != nil && !os.IsNotExist(err) {
-		return err
+	if err := os.Remove(newname); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("Can't remove %s: %s", newname, err)
 	}
 	// Create subdirectories if necessary
-	if err := os.MkdirAll(path.Dir(oldname), 0700); err != nil && !os.IsExist(err) {
-		return err
+	if err := os.MkdirAll(path.Dir(newname), 0700); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("Can't mkdir %s: %s", newname, err)
 	}
-	return os.Symlink(newname, oldname)
+	return os.Symlink(oldname, newname)
 }
 
 // Return the contents of file at path `src`.
