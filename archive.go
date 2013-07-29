@@ -106,14 +106,19 @@ func TarFilter(path string, compression Compression, filter []string) (io.Reader
 // The archive may be compressed with one of the following algorithgms:
 //  identity (uncompressed), gzip, bzip2, xz.
 // FIXME: specify behavior when target path exists vs. doesn't exist.
-func Untar(archive io.Reader, path string) error {
+func Untar(archive io.Reader, path string) (err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("Untar: %s", err)
+		}
+	}()
 	if archive == nil {
 		return fmt.Errorf("Empty archive")
 	}
 	bufferedArchive := bufio.NewReaderSize(archive, 10)
 	buf, err := bufferedArchive.Peek(10)
 	if err != nil {
-		return err
+		return fmt.Errorf("error auto-detecting compression: %s", err)
 	}
 	compression := DetectCompression(buf)
 
