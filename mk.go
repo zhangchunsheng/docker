@@ -105,7 +105,41 @@ func (c *Container) GetCommand(name string) (*Cmd, error) {
 	return cmd, nil
 }
 
+func (c *Container) GetChild(name string) (*Container, error) {
+	// FIXME: this is a naive implementation
+	realPath := containerPath(name)
+	Debugf("realPath = %s", realPath)
+	if realPath == "" || realPath == "/" || realPath == "." {
+		return c, nil
+	}
+	child := &Container{
+		Id: path.Base(name),
+		Root: c.Path(realPath),
+	}
+	if _, err := os.Stat(child.Root); err != nil {
+		return child, err
+	}
+	return child, nil
+}
 
+func (c *Container) ListChildren() ([]string, error) {
+	return LS(c.Path(".docker/engine/containers"))
+}
+
+func (c *Container) CreateChild() (*Container, error) {
+	id, err := mkUniqueDir(c.Path(".docker/engine/containers/"), "", "")
+	if err != nil {
+		return nil, err
+	}
+	cRoot := c.Path(".docker/engine/containers/", id)
+	Debugf("Created new container: %s at root %s", id, cRoot)
+	return NewContainer(id, cRoot)
+}
+
+func (c *Container) NameChild(name, target string) error {
+	// FIXME: handle slashes in name
+	return symlink(target, c.Path(containerPath(name)))
+}
 
 func (c *Container) SetCommand(name string, cmd *Cmd) (string, error) {
 	var err error
@@ -474,45 +508,12 @@ func (eng *Engine) NewSession(conn io.ReadWriteCloser, root *Container) (*Sessio
 }
 
 func (eng *Engine) Get(name string) (*Container, error) {
-	if name == "0" {
-		return eng.c0, nil
-	}
-	// FIXME: index containers by name, with nested names etc.
-	cRoot := eng.Path("/containers", name)
-	if st, err := os.Stat(cRoot); err != nil {
-		return nil, err
-	} else if !st.IsDir() {
-		return nil, fmt.Errorf("%s: not a directory", name)
-	}
-	return &Container{
-		Id: name,
-		Root: cRoot,
-	}, nil
+	return eng.c0.GetChild(name)
 }
+
 
 func (eng *Engine) Create(parent string) (*Container, error) {
-	// FIXME: create from a parent, nested naming etc.
-	if parent != "" {
-		parent += "::"
-	}
-	id, err := mkUniqueDir(eng.Path("/containers"), parent, "")
-	if err != nil {
-		return nil, err
-	}
-	Debugf("Created new container: %s at root %s", id, eng.Path("/containers", id))
-	return NewContainer(id, eng.Path("/containers", id))
-}
-
-func (eng *Engine) Alias(name, target string) (*Container, error) {
-	// FIXME don't allow numbers
-	if err := os.Symlink(target, eng.Path("/containers", name)); err != nil {
-		return nil, err
-	}
-	return eng.Get(name)
-}
-
-func (eng *Engine) List() ([]string, error) {
-	return LS(eng.Path("/containers"))
+	return eng.c0.CreateChild()
 }
 
 
@@ -530,34 +531,46 @@ type Session struct {
 	conn	io.ReadWriteCloser
 	root	*Container
 	context	*Container
+	contextPath string
 	engine	*Engine
 	reader	*bufio.Reader
+}
+
+func (session *Session) CD(contextPath string) error {
+	if !path.IsAbs(contextPath) {
+		contextPath = path.Join(session.contextPath, contextPath)
+	}
+	context, err := session.root.GetChild(contextPath)
+	if err != nil {
+		return err
+	}
+	session.context = context
+	session.contextPath = contextPath
+	return nil
 }
 
 // Execute a command
 func (session *Session) Do(op *Op) error {
 	fmt.Printf("---> %s %s\n", op.Name, op.Args)
 	// IN and FROM affect the context
-	if op.Name == "in" {
-		ctx, err := session.engine.Get(op.Args[0])
+	if op.Name == "cd" {
+		if err := session.CD(op.Args[0]); err != nil {
+			return err
+		}
+	} else if op.Name == "clone" {
+		src, err := session.root.GetChild(op.Args[0])
 		if err != nil {
 			return err
 		}
-		session.context = ctx
-	} else if op.Name == "from" {
-		src, err := session.engine.Get(op.Args[0])
-		if err != nil {
+		if path.Clean(src.Root) == path.Clean(session.context.Root) {
+			return fmt.Errorf("Can't clone: circular reference")
+		}
+		if err := CopyWithTar(src.Root, session.context.Root); err != nil {
 			return err
 		}
-		// FIXME: implement actual COMMIT of src into ctx
-		ctx, err := session.engine.Create(src.Id)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("Committed %s to %s (not really)\n", src.Id, ctx.Id)
-		session.context = ctx
+		Log("Cloned %s into %s\n", src.Id, session.context.Id)
 	} else if op.Name == "ls" {
-		containers, err := session.engine.List()
+		containers, err := session.context.ListChildren()
 		if err != nil {
 			return err
 		}
@@ -565,16 +578,17 @@ func (session *Session) Do(op *Op) error {
 			fmt.Println(cName)
 		}
 	} else if op.Name == "ps" {
-		containers, err := session.engine.List()
+		containers, err := session.context.ListChildren()
 		if err != nil {
 			return err
 		}
 		for _, cName := range containers {
-			c, err := session.engine.Get(cName)
+			c, err := session.context.GetChild(cName)
 			if err != nil {
 				Debugf("Can't load container %s\n", cName)
 				continue
 			}
+			Debugf("Child = %s", c)
 			commands, err := LS(c.Path(".docker/run/exec"))
 			for _, cmdName := range commands {
 				cmd, err := c.GetCommand(cmdName)
@@ -586,7 +600,7 @@ func (session *Session) Do(op *Op) error {
 			}
 		}
 	} else if op.Name == "name" {
-		_, err := session.engine.Alias(op.Args[0], session.context.Id)
+		err := session.root.NameChild(op.Args[0], session.contextPath)
 		if err != nil {
 			return err
 		}

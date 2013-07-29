@@ -106,6 +106,28 @@ func LS(dir string) ([]string, error) {
 	return names, nil
 }
 
+func containerPath(name string) string {
+	return path.Clean(strings.Join(append([]string{"/"}, containerParts(name)...), "/.docker/engine/containers/"))
+}
+
+func containerParts(name string) (parts []string) {
+	defer func() {
+		Debugf("containerParts = %s", parts)
+	}()
+	name = path.Clean(name)
+	var (
+		base string
+	)
+	for {
+		name, base = path.Split(name)
+		if base != "" {
+			parts = append([]string{base}, parts...)
+		} else {
+			break
+		}
+	}
+	return parts
+}
 
 func mkUniqueDir(parent, prefix, name string) (dir string, err error) {
 	if err := os.MkdirAll(parent, 0700); err != nil {
