@@ -593,14 +593,6 @@ func (session *Session) Do(op *Op) error {
 			}
 		}
 	} else {
-		// If context is still not set, create an new empty container as context
-		if session.context == nil {
-			ctx, err := session.engine.Create("")
-			if err != nil {
-				return err
-			}
-			session.context = ctx
-		}
 		Debugf("Preparing to execute command in context %s", session.context.Id)
 		cmd := new(Cmd)
 		cmd.Path = "docker"
