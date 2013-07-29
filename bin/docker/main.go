@@ -132,6 +132,7 @@ func engineMain(args []string) error {
 		}
 		// Wait for all execs to return
 	} else if args[0] == "exec" {
+		docker.Debugf("EXEC %s %s\n", args[1], args[2:])
 		cmd := exec.Command(args[1], args[2:]...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

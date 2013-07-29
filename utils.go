@@ -135,6 +135,10 @@ func containerParts(name string) (parts []string) {
 }
 
 func mkUniqueDir(parent, prefix, name string) (dir string, err error) {
+	Debugf("mkUniqueDir(%v, %v, %v)...", parent, prefix, name)
+	defer func() {
+		Debugf("mkUniqueDir -> (%v, %v)", name, dir, err)
+	}()
 	if err := os.MkdirAll(parent, 0700); err != nil {
 		return "", err
 	}
