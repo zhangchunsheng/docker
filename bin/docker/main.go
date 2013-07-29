@@ -13,10 +13,30 @@ import (
 )
 
 
+type OpList [][]string
+
+
+func (l *OpList) Set(value string) error {
+	l.add(strings.Split(value, " "))
+	return nil
+}
+
+func (l *OpList) add(op []string) {
+	ops := *l
+	ops = append(ops, op)
+	*l = ops
+}
+
+func (l *OpList) String() string {
+	return fmt.Sprintf("%s", *l)
+}
+
 func main() {
 //	os.Setenv("DEBUG", "1")
 	fmt.Printf("Main %s\n", os.Args)
 	flEngine := flag.Bool("e", false, "Engine mode")
+	var ops OpList
+	flag.Var(&ops, "c", "Execute a new operation in the chain")
 	flag.Parse()
 	if *flEngine {
 		if err := engineMain(flag.Args()); err != nil {
@@ -25,11 +45,18 @@ func main() {
 		}
 		os.Exit(0)
 	}
-	if flag.NArg() < 1 {
-		fmt.Printf("Usage: mk CMD [ARGS...]\n")
-		os.Exit(1)
+	if len(ops) == 0 {
+		if flag.NArg() == 0 {
+			fmt.Printf("Usage: mk CMD [ARGS...]\n")
+			os.Exit(1)
+		}
+		ops = [][]string{flag.Args()}
+	} else {
+		if flag.NArg() > 0 {
+			fmt.Printf("Usage: mk CMD [ARGS...]\n")
+			os.Exit(1)
+		}
 	}
-
 	c, err  := docker.NewContainer("0", ".")
 	if err != nil {
 		docker.Fatalf("Failed to setup root container: %s", err)
@@ -48,16 +75,6 @@ func main() {
 		}
 	}()
 	<-ready
-	var ops [][]string
-	if flag.Arg(0) == "-" {
-		if o, err := docker.ParseDockerfile(os.Stdin); err != nil {
-			docker.Fatal(err)
-		} else {
-			ops = append(ops, o...)
-		}
-	} else {
-		ops = append(ops, flag.Args())
-	}
 	ops = append(ops, []string{"die"})
 	if err := eng.Ctl(ops...); err != nil {
 		docker.Fatalf("Error sending engine startup commands: %s", err)
