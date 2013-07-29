@@ -101,3 +101,8 @@ See github issue #1.
 ### Grouping and tagging containers for operations
 
 For example, use tags to automatically configure a load-balancer.
+
+
+### Scoping and multi-tenancy
+
+Give each developer his own 'git push' entrypoint.
