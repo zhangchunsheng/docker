@@ -360,13 +360,11 @@ func (eng *Engine) Ctl(ops ...[]string) error {
 
 func (s *Session) ReadOp() (*Op, error) {
 	// FIXME: commit the current container before each command
-	Debugf("Reading command...")
 	var nArg int
 	line, err := s.reader.ReadString('\r')
 	if err != nil {
 		return nil, err
 	}
-	Debugf("line == '%s'", line)
 	if len(line) < 1 || line[len(line) - 1] != '\r' {
 		return nil, fmt.Errorf("Malformed request: doesn't start with '*<nArg>\\r\\n'. %s", err)
 	}
@@ -374,7 +372,6 @@ func (s *Session) ReadOp() (*Op, error) {
 	if _, err := fmt.Sscanf(line, "*%d", &nArg); err != nil {
 		return nil, fmt.Errorf("Malformed request: '%s' doesn't start with '*<nArg>'. %s", line, err)
 	}
-	Debugf("nArg = %d", nArg)
 	nl := make([]byte, 1)
 	if _, err := s.reader.Read(nl); err != nil {
 		return nil, err
@@ -383,7 +380,6 @@ func (s *Session) ReadOp() (*Op, error) {
 	}
 	var op Op
 	for i:=0; i<nArg; i+=1 {
-		Debugf("\n-------\nReading arg %d/%d", i + 1, nArg)
 		// FIXME: specify int size?
 		var argSize int64
 
@@ -391,7 +387,6 @@ func (s *Session) ReadOp() (*Op, error) {
 		if err != nil {
 			return nil, err
 		}
-		Debugf("line == '%s'", line)
 		if len(line) < 1 || line[len(line) - 1] != '\r' {
 			return nil, fmt.Errorf("Malformed request: doesn't start with '$<nArg>\\r\\n'. %s", err)
 		}
@@ -399,7 +394,6 @@ func (s *Session) ReadOp() (*Op, error) {
 		if _, err := fmt.Sscanf(line, "$%d", &argSize); err != nil {
 			return nil, fmt.Errorf("Malformed request: '%s' doesn't start with '$<nArg>'. %s", line, err)
 		}
-		Debugf("argSize= %d", argSize)
 		nl := make([]byte, 1)
 		if _, err := s.reader.Read(nl); err != nil {
 			return nil, err
@@ -418,7 +412,6 @@ func (s *Session) ReadOp() (*Op, error) {
 			return nil, fmt.Errorf("Malformed request: argument #%d doesn't end with \\r\\n", i)
 		}
 		arg := string(argData[:len(argData) - 2])
-		Debugf("arg = %s", arg)
 		if i == 0 {
 			op.Name = strings.ToLower(arg)
 		} else {
