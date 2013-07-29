@@ -107,13 +107,13 @@ func LS(dir string) ([]string, error) {
 }
 
 
-func mkUniqueDir(parent string, name string) (dir string, err error) {
+func mkUniqueDir(parent, prefix, name string) (dir string, err error) {
 	if err := os.MkdirAll(parent, 0700); err != nil {
 		return "", err
 	}
 	var i int64
 	if name != "" {
-		if err := os.Mkdir(path.Join(parent, name), 0700); err != nil {
+		if err := os.Mkdir(path.Join(parent, prefix + name), 0700); err != nil {
 			return "", err
 		}
 		return name, nil
@@ -121,7 +121,7 @@ func mkUniqueDir(parent string, name string) (dir string, err error) {
 	// FIXME: store a hint on disk to avoid scanning from 1 everytime
 	for i=0; i<1<<63 - 1; i+= 1 {
 		name = fmt.Sprintf("%d", i)
-		err := os.Mkdir(path.Join(parent, name), 0700)
+		err := os.Mkdir(path.Join(parent, prefix + name), 0700)
 		if os.IsExist(err) {
 			continue
 		} else if err != nil {

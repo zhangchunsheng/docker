@@ -112,7 +112,7 @@ func (c *Container) GetCommand(name string) (*Cmd, error) {
 
 func (c *Container) SetCommand(name string, cmd *Cmd) (string, error) {
 	var err error
-	name, err = mkUniqueDir(c.Path("/.docker/run/exec"), name)
+	name, err = mkUniqueDir(c.Path("/.docker/run/exec"), "", name)
 	if err != nil {
 		return "", err
 	}
@@ -478,9 +478,12 @@ func (eng *Engine) Get(name string) (*Container, error) {
 	}, nil
 }
 
-func (eng *Engine) Create() (*Container, error) {
+func (eng *Engine) Create(parent string) (*Container, error) {
 	// FIXME: create from a parent, nested naming etc.
-	id, err := mkUniqueDir(eng.Path("/containers"), "")
+	if parent != "" {
+		parent += "::"
+	}
+	id, err := mkUniqueDir(eng.Path("/containers"), parent, "")
 	if err != nil {
 		return nil, err
 	}
@@ -524,7 +527,7 @@ func (session *Session) Do(op *Op) error {
 			return err
 		}
 		// FIXME: implement actual COMMIT of src into ctx
-		ctx, err := session.engine.Create()
+		ctx, err := session.engine.Create(src.Id)
 		if err != nil {
 			return err
 		}
@@ -562,7 +565,7 @@ func (session *Session) Do(op *Op) error {
 	} else {
 		// If context is still not set, create an new empty container as context
 		if session.context == nil {
-			ctx, err := session.engine.Create()
+			ctx, err := session.engine.Create("")
 			if err != nil {
 				return err
 			}
