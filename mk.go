@@ -585,6 +585,11 @@ func (session *Session) Do(op *Op) error {
 				fmt.Printf("%s:%s\t%s %s\n", c.Id, cmdName, cmd.Path, strings.Join(cmd.Args, " "))
 			}
 		}
+	} else if op.Name == "name" {
+		_, err := session.engine.Alias(op.Args[0], session.context.Id)
+		if err != nil {
+			return err
+		}
 	} else {
 		Debugf("Preparing to execute command in context %s", session.context.Id)
 		cmd := new(Cmd)
