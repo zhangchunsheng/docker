@@ -150,7 +150,7 @@ func mkUniqueDir(parent, prefix, name string) (dir string, err error) {
 		return name, nil
 	}
 	// FIXME: store a hint on disk to avoid scanning from 1 everytime
-	for i=0; i<1<<63 - 1; i+= 1 {
+	for i=1; i<1<<63 - 1; i+= 1 {
 		name = fmt.Sprintf("%d", i)
 		err := os.Mkdir(path.Join(parent, prefix + name), 0700)
 		if os.IsExist(err) {
