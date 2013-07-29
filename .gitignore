@@ -1,2 +1,4 @@
 bin/docker/docker
 .docker
+.*.swp
+.*.swo
