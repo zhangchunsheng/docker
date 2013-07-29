@@ -52,6 +52,14 @@ func NewContainer(id, root string) (*Container, error) {
 	if err := os.MkdirAll(c.Path(".docker/bin"), 0700); err != nil && !os.IsExist(err) {
 		return nil, err
 	}
+	// Setup tar
+	systemTar, err := exec.LookPath("tar")
+	if err != nil {
+		return nil, err
+	}
+	if err := symlink(systemTar, c.Path(".docker/bin", "tar")); err != nil {
+		return nil, err
+	}
 	// FIXME: create hardlink if possible
 	if err := exec.Command("cp", SelfPath(), c.Path(".docker/bin/docker")).Run(); err != nil {
 		return nil, err
