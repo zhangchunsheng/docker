@@ -503,6 +503,7 @@ func (eng *Engine) NewSession(conn io.ReadWriteCloser, root *Container) (*Sessio
 		conn: conn,
 		root: root,
 		context: context,
+		contextPath: context.Id,
 		reader: bufio.NewReader(conn),
 	}, nil
 }
@@ -612,13 +613,14 @@ func (session *Session) Do(op *Op) error {
 		cmd.Args = append(cmd.Args, op.Args...)
 		// ...with the current context as cwd
 		// (relative to the container)
-		cmd.Dir = "/.docker/engine/containers/" + session.context.Id
+		cmd.Dir = containerPath(session.contextPath)
+		Debugf("cmd.Dir = %s", cmd.Dir)
 		_, err := session.context.SetCommand("", cmd)
 		if err != nil {
 			return err
 		}
 		// Execute command as a process inside c0
-		ps, err := cmd.Run(session.engine.c0.Root)
+		ps, err := cmd.Run(session.root.Root)
 		if err != nil {
 			return err
 		}
