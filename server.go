@@ -486,7 +486,7 @@ func (srv *Server) pullRepository(r *registry.Registry, out io.Writer, localName
 		repoData.ImgList[id].Tag = askedTag
 	}
 
-	errors := make(chan error)
+	errors := make(chan error, len(repoData.ImgList))
 	for _, image := range repoData.ImgList {
 		downloadImage := func(img *registry.ImgData) {
 			if askedTag != "" && img.Tag != askedTag {
@@ -644,7 +644,7 @@ func (srv *Server) getImageList(localRepo map[string]string) ([]*registry.ImgDat
 	return imgList, nil
 }
 
-func (srv *Server) pushRepository(r *registry.Registry, out io.Writer, localName, remoteName string, localRepo map[string]string, indexEp string, sf *utils.StreamFormatter) error {
+func (srv *Server) pushRepository(r *registry.Registry, out io.Writer, localName, remoteName string, localRepo map[string]string, indexEp string, sf *utils.StreamFormatter, parallel bool) error {
 	out = utils.NewWriteFlusher(out)
 	imgList, err := srv.getImageList(localRepo)
 	if err != nil {
@@ -660,24 +660,46 @@ func (srv *Server) pushRepository(r *registry.Registry, out io.Writer, localName
 
 	for _, ep := range repoData.Endpoints {
 		out.Write(sf.FormatStatus("", "Pushing repository %s (%d tags)", localName, len(localRepo)))
+		errors := make(chan error, len(imgList))
+
 		// For each image within the repo, push them
 		for _, elem := range imgList {
-			if _, exists := repoData.ImgList[elem.ID]; exists {
-				out.Write(sf.FormatProgress(utils.TruncateID(elem.ID), "Pushing", "image already pushed, skipping"))
-				continue
-			} else if r.LookupRemoteImage(elem.ID, ep, repoData.Tokens) {
-				out.Write(sf.FormatProgress(utils.TruncateID(elem.ID), "Pushing", "image already pushed, skipping"))
-				continue
+			uploadImage := func(img *registry.ImgData) {
+				if _, exists := repoData.ImgList[img.ID]; exists {
+					out.Write(sf.FormatProgress(utils.TruncateID(img.ID), "Pushing", "image already pushed, skipping"))
+					errors <- nil
+					return
+				} else if r.LookupRemoteImage(img.ID, ep, repoData.Tokens) {
+					out.Write(sf.FormatProgress(utils.TruncateID(img.ID), "Pushing", "image already pushed, skipping"))
+					errors <- nil
+					return
+				}
+				if checksum, err := srv.pushImage(r, out, remoteName, img.ID, ep, repoData.Tokens, sf); err != nil {
+					// FIXME: Continue on error?
+					errors <- err
+					return
+				} else {
+					img.Checksum = checksum
+				}
+				out.Write(sf.FormatProgress(utils.TruncateID(img.ID), "Pushing", "tags on {"+ep+"repositories/"+remoteName+"/tags/"+img.Tag+"}"))
+				if err := r.PushRegistryTag(remoteName, img.ID, img.Tag, ep, repoData.Tokens); err != nil {
+					errors <- err
+				}
+				errors <- nil
 			}
-			if checksum, err := srv.pushImage(r, out, remoteName, elem.ID, ep, repoData.Tokens, sf); err != nil {
-				// FIXME: Continue on error?
-				return err
+
+			if parallel {
+				go uploadImage(elem)
 			} else {
-				elem.Checksum = checksum
+				uploadImage(elem)
 			}
-			out.Write(sf.FormatProgress(utils.TruncateID(elem.ID), "Pushing", "tags on {"+ep+"repositories/"+remoteName+"/tags/"+elem.Tag+"}"))
-			if err := r.PushRegistryTag(remoteName, elem.ID, elem.Tag, ep, repoData.Tokens); err != nil {
-				return err
+		}
+
+		if parallel {
+			for i := 0; i < len(imgList); i++ {
+				if err := <-errors; err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -731,7 +753,7 @@ func (srv *Server) pushImage(r *registry.Registry, out io.Writer, remote, imgID,
 }
 
 // FIXME: Allow to interrupt current push when new push of same image is done.
-func (srv *Server) ImagePush(localName string, out io.Writer, sf *utils.StreamFormatter, authConfig *auth.AuthConfig) error {
+func (srv *Server) ImagePush(localName string, out io.Writer, sf *utils.StreamFormatter, authConfig *auth.AuthConfig, parallel bool) error {
 	if err := srv.poolAdd("push", localName); err != nil {
 		return err
 	}
@@ -755,7 +777,7 @@ func (srv *Server) ImagePush(localName string, out io.Writer, sf *utils.StreamFo
 		out.Write(sf.FormatStatus("", "The push refers to a repository [%s] (len: %d)", localName, reposLen))
 		// If it fails, try to get the repository
 		if localRepo, exists := srv.runtime.repositories.Repositories[localName]; exists {
-			if err := srv.pushRepository(r, out, localName, remoteName, localRepo, endpoint, sf); err != nil {
+			if err := srv.pushRepository(r, out, localName, remoteName, localRepo, endpoint, sf, parallel); err != nil {
 				return err
 			}
 			return nil
