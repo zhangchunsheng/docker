@@ -645,7 +645,6 @@ func (srv *Server) getImageList(localRepo map[string]string) ([]*registry.ImgDat
 }
 
 func (srv *Server) pushRepository(r *registry.Registry, out io.Writer, localName, remoteName string, localRepo map[string]string, indexEp string, sf *utils.StreamFormatter, parallel bool) error {
-	out = utils.NewWriteFlusher(out)
 	imgList, err := srv.getImageList(localRepo)
 	if err != nil {
 		return err
@@ -712,7 +711,6 @@ func (srv *Server) pushRepository(r *registry.Registry, out io.Writer, localName
 }
 
 func (srv *Server) pushImage(r *registry.Registry, out io.Writer, remote, imgID, ep string, token []string, sf *utils.StreamFormatter) (checksum string, err error) {
-	out = utils.NewWriteFlusher(out)
 	jsonRaw, err := ioutil.ReadFile(path.Join(srv.runtime.graph.Root, imgID, "json"))
 	if err != nil {
 		return "", fmt.Errorf("Error while retrieving the path for {%s}: %s", imgID, err)
