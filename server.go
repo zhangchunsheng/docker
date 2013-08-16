@@ -732,44 +732,69 @@ func (srv *Server) pushRepository(r *registry.Registry, out io.Writer, localName
 	return nil
 }
 
-func (srv *Server) pushImage(r *registry.Registry, out io.Writer, remote, imgID, ep string, token []string, sf *utils.StreamFormatter, hasCookie chan bool) (checksum string, err error) {
+func (srv *Server) pushJSON(r *registry.Registry, out io.Writer, remote, imgID, ep string, token []string, sf *utils.StreamFormatter, hasCookie chan bool) ([]byte, error) {
 	jsonRaw, err := ioutil.ReadFile(path.Join(srv.runtime.graph.Root, imgID, "json"))
 	if err != nil {
-		return "", fmt.Errorf("Error while retrieving the path for {%s}: %s", imgID, err)
+		return nil, fmt.Errorf("Error while retrieving the path for {%s}: %s", imgID, err)
 	}
 	out.Write(sf.FormatProgress(utils.TruncateID(imgID), "Pushing", "image"))
-
 	imgData := &registry.ImgData{
 		ID: imgID,
 	}
 
-	// Send the json
 	err = r.PushImageJSONRegistry(imgData, jsonRaw, ep, token)
 	if hasCookie != nil {
 		hasCookie <- true
 	}
 	if err != nil {
-		return "", err
+		return nil, err
 	}
+	return jsonRaw, nil
+}
 
+func (srv *Server) pushLayer(r *registry.Registry, out io.Writer, remote, imgID, ep string, token []string, jsonRaw []byte, sf *utils.StreamFormatter) (string, error) {
 	layerData, err := srv.runtime.graph.TempLayerArchive(imgID, Uncompressed, sf, out)
 	if err != nil {
 		return "", fmt.Errorf("Failed to generate layer archive: %s", err)
 	}
 
-	// Send the layer
-	if checksum, err := r.PushImageLayerRegistry(imgData.ID, utils.ProgressReader(layerData, int(layerData.Size), out, sf.FormatProgress(utils.TruncateID(imgData.ID), "Pushing", "%8v/%v (%v)"), sf, false), ep, token, jsonRaw); err != nil {
+	if checksum, err := r.PushImageLayerRegistry(imgID, utils.ProgressReader(layerData, int(layerData.Size), out, sf.FormatProgress(utils.TruncateID(imgID), "Pushing", "%8v/%v (%v)"), sf, false), ep, token, jsonRaw); err != nil {
 		return "", err
 	} else {
-		imgData.Checksum = checksum
+		return checksum, nil
+	}
+}
+
+func (srv *Server) pushChecksum(r *registry.Registry, out io.Writer, remote, imgID, checksum, ep string, token []string, sf *utils.StreamFormatter) error {
+	imgData := &registry.ImgData{
+		ID:       imgID,
+		Checksum: checksum,
+	}
+	if err := r.PushImageChecksumRegistry(imgData, ep, token); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (srv *Server) pushImage(r *registry.Registry, out io.Writer, remote, imgID, ep string, token []string, sf *utils.StreamFormatter, hasCookie chan bool) (checksum string, err error) {
+	// Send the json
+	jsonRaw, err := srv.pushJSON(r, out, remote, imgID, ep, token, sf, hasCookie)
+	if err != nil {
+		return "", err
+	}
+
+	// Send the layer
+	checksum, err = srv.pushLayer(r, out, remote, imgID, ep, token, jsonRaw, sf)
+	if err != nil {
+		return "", err
 	}
 
 	// Send the checksum
-	if err := r.PushImageChecksumRegistry(imgData, ep, token); err != nil {
+	err = srv.pushChecksum(r, out, remote, imgID, checksum, ep, token, sf)
+	if err != nil {
 		return "", err
 	}
-
-	return imgData.Checksum, nil
+	return checksum, nil
 }
 
 // FIXME: Allow to interrupt current push when new push of same image is done.
