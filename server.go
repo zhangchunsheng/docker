@@ -662,57 +662,55 @@ func (srv *Server) pushRepository(r *registry.Registry, out io.Writer, localName
 
 	for _, ep := range repoData.Endpoints {
 		out.Write(sf.FormatStatus("", "Pushing repository %s (%d tags)", localName, len(localRepo)))
-		errors := make(chan error, len(imgList))
-		hasCookie := make(chan bool, len(imgList))
 
-		uploadImage := func(img *registry.ImgData) {
-			if _, exists := repoData.ImgList[img.ID]; exists {
-				out.Write(sf.FormatProgress(utils.TruncateID(img.ID), "Pushing", "image already pushed, skipping"))
-				errors <- nil
-				return
-			}
-			if checksum, err := srv.pushImage(r, out, remoteName, img.ID, ep, repoData.Tokens, sf, hasCookie); err != nil {
-				if err == registry.ErrAlreadyExists {
-					out.Write(sf.FormatProgress(utils.TruncateID(img.ID), "Pushing", "image already pushed, skipping"))
-					errors <- nil
-				} else {
-					// FIXME: Continue on error?
-					errors <- err
-				}
-				return
-			} else {
-				img.Checksum = checksum
-			}
-			out.Write(sf.FormatProgress(utils.TruncateID(img.ID), "Pushing", "tags on {"+ep+"repositories/"+remoteName+"/tags/"+img.Tag+"}"))
-			if err := r.PushRegistryTag(remoteName, img.ID, img.Tag, ep, repoData.Tokens); err != nil {
-				errors <- err
-			}
-			errors <- nil
-		}
-
-		// For each image within the repo, push them
 		if parallel {
-			go uploadImage(imgList[0])
-			<-hasCookie
-		} else {
-			uploadImage(imgList[0])
-			if err := <-errors; err != nil {
-				return err
-			}
-		}
+			errors := make(chan error, len(imgList))
 
-		for _, elem := range imgList[1:] {
-			if parallel {
-				go uploadImage(elem)
-			} else {
-				uploadImage(elem)
-				if err := <-errors; err != nil {
+			uploadLayerAndChecksumAndTag := func(img *registry.ImgData, jsonRaw []byte) {
+				checksum, err := srv.pushLayer(r, out, remoteName, img.ID, ep, repoData.Tokens, jsonRaw, sf)
+				if err != nil {
+					errors <- err
+					return
+				}
+				if err := srv.pushChecksum(r, out, remoteName, img.ID, checksum, ep, repoData.Tokens, sf); err != nil {
+					errors <- err
+					return
+				}
+				out.Write(sf.FormatProgress(utils.TruncateID(img.ID), "Pushing", "tags on {"+ep+"repositories/"+remoteName+"/tags/"+img.Tag+"}"))
+				errors <- r.PushRegistryTag(remoteName, img.ID, img.Tag, ep, repoData.Tokens)
+			}
+
+			jsonRaws := [][]byte{}
+			for _, img := range imgList {
+				if _, exists := repoData.ImgList[img.ID]; exists {
+					out.Write(sf.FormatProgress(utils.TruncateID(img.ID), "Pushing", "image already pushed, skipping"))
+					jsonRaws = append(jsonRaws, nil)
+					continue
+				}
+				jsonRaw, err := srv.buildJSONRaw(out, img.ID, sf)
+				if err != nil {
 					return err
 				}
+				if err := srv.pushJSON(r, out, remoteName, img.ID, ep, repoData.Tokens, jsonRaw, sf); err != nil {
+					if err == registry.ErrAlreadyExists {
+						out.Write(sf.FormatProgress(utils.TruncateID(img.ID), "Pushing", "image already pushed, skipping"))
+						jsonRaws = append(jsonRaws, nil)
+						continue
+					}
+					return err
+				}
+				jsonRaws = append(jsonRaws, jsonRaw)
 			}
-		}
 
-		if parallel {
+			for i, img := range imgList {
+				jsonRaw := jsonRaws[i]
+				if jsonRaw != nil {
+					go uploadLayerAndChecksumAndTag(img, jsonRaws[i])
+				} else {
+					errors <- nil
+				}
+			}
+
 			var e error
 			for i := 0; i < len(imgList); i++ {
 				if err := <-errors; err != nil {
@@ -721,6 +719,29 @@ func (srv *Server) pushRepository(r *registry.Registry, out io.Writer, localName
 			}
 			if e != nil {
 				return e
+			}
+
+		} else {
+			for _, elem := range imgList {
+				if _, exists := repoData.ImgList[elem.ID]; exists {
+					out.Write(sf.FormatProgress(utils.TruncateID(elem.ID), "Pushing", "image already pushed, skipping"))
+					continue
+				}
+				if checksum, err := srv.pushImage(r, out, remoteName, elem.ID, ep, repoData.Tokens, sf); err != nil {
+					if err == registry.ErrAlreadyExists {
+						out.Write(sf.FormatProgress(utils.TruncateID(elem.ID), "Pushing", "image already pushed, skipping"))
+						continue
+					} else {
+						// FIXME: Continue on error?
+						return err
+					}
+				} else {
+					elem.Checksum = checksum
+				}
+				out.Write(sf.FormatProgress(utils.TruncateID(elem.ID), "Pushing", "tags on {"+ep+"repositories/"+remoteName+"/tags/"+elem.Tag+"}"))
+				if err := r.PushRegistryTag(remoteName, elem.ID, elem.Tag, ep, repoData.Tokens); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -732,24 +753,21 @@ func (srv *Server) pushRepository(r *registry.Registry, out io.Writer, localName
 	return nil
 }
 
-func (srv *Server) pushJSON(r *registry.Registry, out io.Writer, remote, imgID, ep string, token []string, sf *utils.StreamFormatter, hasCookie chan bool) ([]byte, error) {
+func (srv *Server) buildJSONRaw(out io.Writer, imgID string, sf *utils.StreamFormatter) ([]byte, error) {
+	out.Write(sf.FormatProgress(utils.TruncateID(imgID), "Pushing", "image"))
 	jsonRaw, err := ioutil.ReadFile(path.Join(srv.runtime.graph.Root, imgID, "json"))
 	if err != nil {
 		return nil, fmt.Errorf("Error while retrieving the path for {%s}: %s", imgID, err)
 	}
-	out.Write(sf.FormatProgress(utils.TruncateID(imgID), "Pushing", "image"))
+	return jsonRaw, nil
+}
+
+func (srv *Server) pushJSON(r *registry.Registry, out io.Writer, remote, imgID, ep string, token []string, jsonRaw []byte, sf *utils.StreamFormatter) error {
 	imgData := &registry.ImgData{
 		ID: imgID,
 	}
 
-	err = r.PushImageJSONRegistry(imgData, jsonRaw, ep, token)
-	if hasCookie != nil {
-		hasCookie <- true
-	}
-	if err != nil {
-		return nil, err
-	}
-	return jsonRaw, nil
+	return r.PushImageJSONRegistry(imgData, jsonRaw, ep, token)
 }
 
 func (srv *Server) pushLayer(r *registry.Registry, out io.Writer, remote, imgID, ep string, token []string, jsonRaw []byte, sf *utils.StreamFormatter) (string, error) {
@@ -776,9 +794,14 @@ func (srv *Server) pushChecksum(r *registry.Registry, out io.Writer, remote, img
 	return nil
 }
 
-func (srv *Server) pushImage(r *registry.Registry, out io.Writer, remote, imgID, ep string, token []string, sf *utils.StreamFormatter, hasCookie chan bool) (checksum string, err error) {
+func (srv *Server) pushImage(r *registry.Registry, out io.Writer, remote, imgID, ep string, token []string, sf *utils.StreamFormatter) (checksum string, err error) {
+	jsonRaw, err := srv.buildJSONRaw(out, imgID, sf)
+	if err != nil {
+		return "", err
+	}
+
 	// Send the json
-	jsonRaw, err := srv.pushJSON(r, out, remote, imgID, ep, token, sf, hasCookie)
+	err = srv.pushJSON(r, out, remote, imgID, ep, token, jsonRaw, sf)
 	if err != nil {
 		return "", err
 	}
@@ -832,7 +855,7 @@ func (srv *Server) ImagePush(localName string, out io.Writer, sf *utils.StreamFo
 
 	var token []string
 	out.Write(sf.FormatStatus("", "The push refers to an image: [%s]", localName))
-	if _, err := srv.pushImage(r, out, remoteName, img.ID, endpoint, token, sf, nil); err != nil {
+	if _, err := srv.pushImage(r, out, remoteName, img.ID, endpoint, token, sf); err != nil {
 		if err == registry.ErrAlreadyExists {
 			out.Write(sf.FormatProgress(utils.TruncateID(img.ID), "Pushing", "image already pushed, skipping"))
 		}
