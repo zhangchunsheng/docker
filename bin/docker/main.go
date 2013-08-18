@@ -1,20 +1,19 @@
 package main
 
 import (
-	"fmt"
-	"os"
 	"flag"
-	"strings"
-	"io"
-	"os/exec"
+	"fmt"
 	"github.com/dotcloud/docker"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
 )
 
-
 type OpList [][]string
-
 
 func (l *OpList) Set(value string) error {
 	l.add(strings.Split(value, " "))
@@ -31,8 +30,10 @@ func (l *OpList) String() string {
 	return fmt.Sprintf("%s", *l)
 }
 
+// Exmaple of usage: `docker -c 'cmd path /bin/bash' -c 'cmd tty 1' -c 'cmd start 1' -c 'cmd attach 1'`
+
 func main() {
-//	os.Setenv("DEBUG", "1")
+	//	os.Setenv("DEBUG", "1")
 	fmt.Printf("Main %s\n", os.Args)
 	flEngine := flag.Bool("e", false, "Engine mode")
 	var ops OpList
@@ -40,8 +41,7 @@ func main() {
 	flag.Parse()
 	if *flEngine {
 		if err := engineMain(flag.Args()); err != nil {
-			docker.Fatalf("Failed to execute engine command '%s': %s",
-				strings.Join(flag.Args(), " "), err)
+			docker.Fatalf("Failed to execute engine command '%s': %s", strings.Join(flag.Args(), " "), err)
 		}
 		os.Exit(0)
 	}
@@ -57,7 +57,7 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	c, err  := docker.NewContainer("0", ".")
+	c, err := docker.NewContainer("0", ".")
 	if err != nil {
 		docker.Fatalf("Failed to setup root container: %s", err)
 	}
@@ -75,6 +75,7 @@ func main() {
 		}
 	}()
 	<-ready
+	time.Sleep(1000 * time.Millisecond)
 	ops = append(ops, []string{"die"})
 	if err := eng.Ctl(ops...); err != nil {
 		docker.Fatalf("Error sending engine startup commands: %s", err)
@@ -127,6 +128,7 @@ func engineMain(args []string) error {
 		if err != nil {
 			return err
 		}
+		docker.Debugf("-----------> %#v\n", commands)
 		for _, cmd := range commands {
 			go eng.Ctl([]string{"exec", cmd})
 		}
@@ -134,6 +136,7 @@ func engineMain(args []string) error {
 	} else if args[0] == "exec" {
 		docker.Debugf("EXEC %s %s\n", args[1], args[2:])
 		cmd := exec.Command(args[1], args[2:]...)
+		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -177,4 +180,3 @@ func engineMain(args []string) error {
 	}
 	return nil
 }
-

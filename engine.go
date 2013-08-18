@@ -1,19 +1,20 @@
 package docker
 
 import (
+	"bufio"
 	"fmt"
-	"os"
-	"os/signal"
-	"path/filepath"
-	"net"
-	"strings"
+	redis_client "github.com/alphazero/Go-Redis"
+	redis_server "github.com/dotcloud/go-redis-server"
 	"io"
 	"io/ioutil"
+	"net"
+	"os"
 	"os/exec"
+	"os/signal"
 	"path"
-	"bufio"
+	"path/filepath"
+	"strings"
 )
-
 
 func CurrentContainer() (*Container, error) {
 	root := os.Getenv("DOCKER_ROOT")
@@ -26,12 +27,11 @@ func CurrentContainer() (*Container, error) {
 	}, nil
 }
 
-func (c *Container) Engine() (*Engine) {
+func (c *Container) Engine() *Engine {
 	return &Engine{
 		c0: c,
 	}
 }
-
 
 func NewContainer(id, root string) (*Container, error) {
 	abspath, err := filepath.Abs(root)
@@ -40,14 +40,18 @@ func NewContainer(id, root string) (*Container, error) {
 	}
 	c := &Container{
 		Root: abspath,
-		Id: id,
+		Id:   id,
 	}
 	// Create /.docker
 	if err := os.MkdirAll(c.Path(".docker"), 0700); err != nil && !os.IsExist(err) {
 		return nil, err
 	}
 	// /.docker didn't exist: set it up
-	defer func() { if err != nil { os.RemoveAll(c.Path(".docker")) } }()
+	defer func() {
+		if err != nil {
+			os.RemoveAll(c.Path(".docker"))
+		}
+	}()
 	// Setup .docker/bin/docker
 	if err := os.MkdirAll(c.Path(".docker/bin"), 0700); err != nil && !os.IsExist(err) {
 		return nil, err
@@ -67,11 +71,7 @@ func NewContainer(id, root string) (*Container, error) {
 	return c, nil
 }
 
-
-
-
 // Container
-
 type Container struct {
 	Id   string
 	Root string
@@ -113,7 +113,7 @@ func (c *Container) GetChild(name string) (*Container, error) {
 		return c, nil
 	}
 	child := &Container{
-		Id: path.Base(name),
+		Id:   path.Base(name),
 		Root: c.Path(realPath),
 	}
 	if _, err := os.Stat(child.Root); err != nil {
@@ -171,7 +171,6 @@ func (c *Container) SetCommand(name string, cmd *Cmd) (string, error) {
 	return name, nil
 }
 
-
 var BaseEnv = []string{
 	"HOME=/",
 	"PATH=/.docker/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin",
@@ -197,11 +196,10 @@ func NewEnv(prefix string, override ...string) (env []string) {
 			}
 			value = strings.Join(searchPath, ":")
 		}
-		env = append(env, key + "=" + value)
+		env = append(env, key+"="+value)
 	}
 	return
 }
-
 
 func getenv(key string, env []string) (value string) {
 	for _, kv := range env {
@@ -244,16 +242,15 @@ func lookPath(target string, env []string) (string, error) {
 	return "", fmt.Errorf("executable file not found in $PATH")
 }
 
-
-
-
 type Cmd struct {
-	Path		string
-	Args		[]string
-	Env		[]string
-	Dir		string
+	Path     string
+	Args     []string
+	Env      []string
+	Dir      string
+	Tty      bool
+	in       io.ReadCloser
+	out, err io.WriteCloser
 }
-
 
 func (cmd *Cmd) Run(root string) (*exec.Cmd, error) {
 	realEnv := NewEnv(root, cmd.Env...)
@@ -270,14 +267,13 @@ func (cmd *Cmd) Run(root string) (*exec.Cmd, error) {
 
 // Engine
 
-
 type Engine struct {
-	c0   *Container // container 0, aka the root container
+	c0 *Container // container 0, aka the root container
 }
 
 func NewEngine(c0 *Container) (*Engine, error) {
 	// Generate an engine ID
-	if err := writeFile(c0.Path(".docker/engine/id"), GenerateID() + "\n"); err != nil {
+	if err := writeFile(c0.Path(".docker/engine/id"), GenerateID()+"\n"); err != nil {
 		return nil, err
 	}
 	// Link containers/0 to the root container
@@ -296,6 +292,27 @@ func (eng *Engine) Cleanup() {
 
 func (eng *Engine) ListenAndServe(ready chan bool) (err error) {
 	defer close(ready)
+
+	handler, err := redis_server.NewAutoHandler(NewHandler(eng))
+	if err != nil {
+		return err
+	}
+	server := &redis_server.Server{Proto: "unix", Handler: handler, Addr: eng.Path("ctl")}
+	{
+		Debugf("Setting up signals")
+		signals := make(chan os.Signal, 128)
+		signal.Notify(signals, os.Interrupt, os.Kill)
+		go func() {
+			for sig := range signals {
+				fmt.Printf("Caught %s. Closing socket\n", sig)
+			}
+		}()
+	}
+	if ready != nil {
+		ready <- true
+	}
+	server.ListenAndServe()
+
 	l, err := net.Listen("unix", eng.Path("ctl"))
 	if err != nil {
 		if c, dialErr := net.Dial("unix", eng.Path("ctl")); dialErr != nil {
@@ -348,6 +365,26 @@ func (eng *Engine) ListenAndServe(ready chan bool) (err error) {
 // by the containers themselves.
 // The protocol is inspired by the Redis wire protocol (http://redis.io/topics/protocol).
 func (eng *Engine) Ctl(ops ...[]string) error {
+
+	client, err2 := redis_client.NewSynchClientWithSpec(redis_client.DefaultSpec().Port(0).Host(eng.Path("ctl")))
+	if err2 != nil {
+		return fmt.Errorf("Error creating the client: %s\n", err2)
+	}
+	for _, opArgs := range ops {
+
+		switch opArgs[0] {
+		case "cmd":
+			if err := client.Hset("cmd", opArgs[1], []byte(strings.Join(opArgs[2:], " "))); err != nil {
+				return err
+			}
+		default:
+			if err := client.Set(opArgs[0], []byte(strings.Join(opArgs[1:], " "))); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+
 	s, err := net.Dial("unix", eng.Path("ctl"))
 	if err != nil {
 		return err
@@ -355,7 +392,7 @@ func (eng *Engine) Ctl(ops ...[]string) error {
 	defer s.Close()
 	reader := bufio.NewReader(s)
 	for idx, opArgs := range ops {
-		Debugf("Sending step #%d ---> %s\n", idx + 1, strings.Join(opArgs, " "))
+		Debugf("Sending step #%d ---> %s\n", idx+1, strings.Join(opArgs, " "))
 		sWriter := io.MultiWriter(s)
 		// Send total number of arguments (including op name)
 		if _, err := fmt.Fprintf(sWriter, "*%d\r\n", len(opArgs)); err != nil {
@@ -399,10 +436,10 @@ func (s *Session) ReadOp() (*Op, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(line) < 1 || line[len(line) - 1] != '\r' {
+	if len(line) < 1 || line[len(line)-1] != '\r' {
 		return nil, fmt.Errorf("Malformed request: doesn't start with '*<nArg>\\r\\n'. %s", err)
 	}
-	line = line[:len(line) - 1]
+	line = line[:len(line)-1]
 	if _, err := fmt.Sscanf(line, "*%d", &nArg); err != nil {
 		return nil, fmt.Errorf("Malformed request: '%s' doesn't start with '*<nArg>'. %s", line, err)
 	}
@@ -413,7 +450,7 @@ func (s *Session) ReadOp() (*Op, error) {
 		return nil, fmt.Errorf("Malformed request: expected '%x', got '%x'", '\n', nl[0])
 	}
 	var op Op
-	for i:=0; i<nArg; i+=1 {
+	for i := 0; i < nArg; i += 1 {
 		// FIXME: specify int size?
 		var argSize int64
 
@@ -421,10 +458,10 @@ func (s *Session) ReadOp() (*Op, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(line) < 1 || line[len(line) - 1] != '\r' {
+		if len(line) < 1 || line[len(line)-1] != '\r' {
 			return nil, fmt.Errorf("Malformed request: doesn't start with '$<nArg>\\r\\n'. %s", err)
 		}
-		line = line[:len(line) - 1]
+		line = line[:len(line)-1]
 		if _, err := fmt.Sscanf(line, "$%d", &argSize); err != nil {
 			return nil, fmt.Errorf("Malformed request: '%s' doesn't start with '$<nArg>'. %s", line, err)
 		}
@@ -435,17 +472,16 @@ func (s *Session) ReadOp() (*Op, error) {
 			return nil, fmt.Errorf("Malformed request: expected '%x', got '%x'", '\n', nl[0])
 		}
 
-
 		// Read arg data
-		argData, err := ioutil.ReadAll(io.LimitReader(s.reader, argSize + 2))
+		argData, err := ioutil.ReadAll(io.LimitReader(s.reader, argSize+2))
 		if err != nil {
 			return nil, err
-		} else if n := int64(len(argData)); n < argSize + 2 {
-			return nil, fmt.Errorf("Malformed request: argument data #%d doesn't match declared size (expected %d bytes (%d + \r\n), read %d)", i, argSize + 2, argSize, n)
-		} else if string(argData[len(argData) - 2:]) != "\r\n" {
+		} else if n := int64(len(argData)); n < argSize+2 {
+			return nil, fmt.Errorf("Malformed request: argument data #%d doesn't match declared size (expected %d bytes (%d + \r\n), read %d)", i, argSize+2, argSize, n)
+		} else if string(argData[len(argData)-2:]) != "\r\n" {
 			return nil, fmt.Errorf("Malformed request: argument #%d doesn't end with \\r\\n", i)
 		}
-		arg := string(argData[:len(argData) - 2])
+		arg := string(argData[:len(argData)-2])
 		if i == 0 {
 			op.Name = strings.ToLower(arg)
 		} else {
@@ -499,12 +535,12 @@ func (eng *Engine) NewSession(conn io.ReadWriteCloser, root *Container) (*Sessio
 		return nil, err
 	}
 	return &Session{
-		engine: eng,
-		conn: conn,
-		root: root,
-		context: context,
+		engine:      eng,
+		conn:        conn,
+		root:        root,
+		context:     context,
 		contextPath: context.Id,
-		reader: bufio.NewReader(conn),
+		reader:      bufio.NewReader(conn),
 	}, nil
 }
 
@@ -512,29 +548,26 @@ func (eng *Engine) Get(name string) (*Container, error) {
 	return eng.c0.GetChild(name)
 }
 
-
 func (eng *Engine) Create(parent string) (*Container, error) {
 	return eng.c0.CreateChild()
 }
 
-
-
 // Command
 
 type Op struct {
-	Name	string
-	Args	[]string
+	Name string
+	Args []string
 }
 
 // Session
 
 type Session struct {
-	conn	io.ReadWriteCloser
-	root	*Container
-	context	*Container
+	conn        io.ReadWriteCloser
+	root        *Container
+	context     *Container
 	contextPath string
-	engine	*Engine
-	reader	*bufio.Reader
+	engine      *Engine
+	reader      *bufio.Reader
 }
 
 func (session *Session) CD(contextPath string) error {
