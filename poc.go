@@ -15,7 +15,6 @@ import (
 
 type MyHandler struct {
 	redis.DefaultHandler
-	brstack       redis.HashBrStack
 	eng           *Engine
 	session       *Session
 	cmd           Cmd
@@ -24,38 +23,133 @@ type MyHandler struct {
 	brC           chan bool
 }
 
+var r, w = io.Pipe()
+var r2, w2 = io.Pipe()
+
 func (h *MyHandler) Write(buf []byte) (int, error) {
-	_, err := h.RPUSH("cmd-write", buf)
+	n2, err := h.RPUSH("cmd-write", buf)
+	if n2 != 1 {
+		println("not alone!!")
+	}
+	n, err := w.Write(buf)
+	if err != nil {
+		return n, err
+	}
+	if n != len(buf) {
+		println("write cmd-write mismatch:", n, len(buf))
+	}
 	return len(buf), err
 }
 
 func (h *MyHandler) Read(buf []byte) (int, error) {
-	b, err := h.BRPOP([]byte("cmd-read"))
+	buf2 := make([]byte, len(buf), cap(buf))
+	buf3 := make([]byte, len(buf), cap(buf))
+
+	b, err := h.BLPOP([]byte("cmd-read"))
+
+	n, err := r2.Read(buf2)
+	if err != nil {
+		return n, err
+	}
+
 	// Make a FIFO stack to avoid issue with buf cap
 	if len(b[1]) > cap(buf) {
 		panic("------------------ READ 1")
 	}
-	copy(buf, b[1])
+	a1 := copy(buf3[:n], buf2[:n])
+	if n != len(b[1]) {
+		println("____________ LEN MISMATCH1")
+	}
+	n = len(b[1])
+	a2 := copy(buf[:n], b[1])
+	if a1 != a2 {
+		println("copy mismatch!!!!!!", a1, a2)
+	}
 
-	return len(b[1]), err
+	for i, c := range buf3[:n] {
+		if i > len(buf) {
+			println("out of range!")
+		}
+		if buf[i] != c {
+			fmt.Printf("MISMATCH!(%d):  %#v, %#v", n, buf[:n], buf3[:n])
+			break
+		}
+	}
+
+	if n != len(b[1]) {
+		println("read cmd-read mismatch:", n, len(b[1]))
+	}
+
+	if len(buf3) != len(buf) || cap(buf3) != cap(buf) {
+		println("read mismatch!!!", len(buf), len(buf3), cap(buf), cap(buf3))
+	}
+
+	return len(buf[:n]), err
 }
 
 type testWriter struct{ *MyHandler }
 
 func (h *testWriter) Write(buf []byte) (int, error) {
-	_, err := h.RPUSH("cmd-read", buf)
+	n2, err := h.RPUSH("cmd-read", buf)
+	if n2 != 1 {
+		println("not alone2!!!!!!!")
+	}
+	n, err := w2.Write(buf)
+	if err != nil {
+		return n, err
+	}
+	if n != len(buf) {
+		println("write cmd-read mismatch:", n, len(buf))
+	}
 	return len(buf), err
 }
 
 func (h *testWriter) Read(buf []byte) (int, error) {
-	b, err := h.BRPOP([]byte("cmd-write"))
+	buf2 := make([]byte, len(buf), cap(buf))
+	buf3 := make([]byte, len(buf), cap(buf))
+
+	b, err := h.BLPOP([]byte("cmd-write"))
 	// Make a FIFO stack to avoid issue with buf cap
 	if len(b[1]) > cap(buf) {
 		panic("------------------ READ 2")
 	}
-	copy(buf, b[1])
 
-	return len(b[1]), err
+	n, err := r.Read(buf2)
+	if err != nil {
+		return n, err
+	}
+
+	a1 := copy(buf3[:n], buf2[:n])
+
+	if n != len(b[1]) {
+		println("____________ LEN MISMATCH22")
+	}
+	n = len(b[1])
+
+	a2 := copy(buf[:n], b[1])
+	if a1 != a2 {
+		println("copy2 mistach!!", a1, a2)
+	}
+
+	for i, c := range buf3[:n] {
+		if i > len(buf) {
+			println("out of range22!")
+		}
+		if buf[i] != c {
+			fmt.Printf("MISMATCH22!(%d) [:  >>>%s<<<<, >>>>%s<<<<<", n, buf[:n], buf3[:n])
+			break
+		}
+	}
+
+	if len(buf3) != len(buf) || cap(buf3) != cap(buf) {
+		println("read mismatch!!!", len(buf), len(buf3), cap(buf), cap(buf3))
+	}
+
+	// if n != len(b[1]) {
+	// 	println("read cmd-write mismatch:", n, len(b[1]))
+	// }
+
+	return len(buf[:n]), err
 }
 
 func (h *MyHandler) HSET(key, subkey string, value []byte) (int, error) {

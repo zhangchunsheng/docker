@@ -293,11 +293,11 @@ func (eng *Engine) Cleanup() {
 func (eng *Engine) ListenAndServe(ready chan bool) (err error) {
 	defer close(ready)
 
-	handler, err := redis_server.NewAutoHandler(NewHandler(eng))
+	//	handler, err := redis_server.NewAutoHandler(NewHandler(eng))
+	server, err := redis_server.NewServer(redis_server.DefaultConfig().Proto("unix").Host(eng.Path("ctl")).Handler(NewHandler(eng))) //Proto: "unix", Handler: handler, Addr: eng.Path("ctl")}
 	if err != nil {
 		return err
 	}
-	server := &redis_server.Server{Proto: "unix", Handler: handler, Addr: eng.Path("ctl")}
 	{
 		Debugf("Setting up signals")
 		signals := make(chan os.Signal, 128)
