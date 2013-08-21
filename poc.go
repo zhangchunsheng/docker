@@ -19,137 +19,48 @@ type MyHandler struct {
 	session       *Session
 	cmd           Cmd
 	master, slave *os.File
-	br            map[string][][]byte
-	brC           chan bool
 }
 
-var r, w = io.Pipe()
-var r2, w2 = io.Pipe()
-
 func (h *MyHandler) Write(buf []byte) (int, error) {
-	n2, err := h.RPUSH("cmd-write", buf)
-	if n2 != 1 {
-		println("not alone!!")
-	}
-	n, err := w.Write(buf)
-	if err != nil {
-		return n, err
-	}
-	if n != len(buf) {
-		println("write cmd-write mismatch:", n, len(buf))
-	}
+	_, err := h.RPUSH("cmd-write", buf)
+	h.BRPOP("cmd-write-ack")
 	return len(buf), err
 }
 
 func (h *MyHandler) Read(buf []byte) (int, error) {
-	buf2 := make([]byte, len(buf), cap(buf))
-	buf3 := make([]byte, len(buf), cap(buf))
+	// FIXME: Make a FIFO stack to avoid issue with buf cap
 
-	b, err := h.BLPOP([]byte("cmd-read"))
-
-	n, err := r2.Read(buf2)
+	b, err := h.BLPOP("cmd-read")
 	if err != nil {
-		return n, err
+		return 0, err
 	}
+	n := len(b[1])
+	copy(buf[:n], b[1])
 
-	// Make a FIFO stack to avoid issue with buf cap
-	if len(b[1]) > cap(buf) {
-		panic("------------------ READ 1")
-	}
-	a1 := copy(buf3[:n], buf2[:n])
-	if n != len(b[1]) {
-		println("____________ LEN MISMATCH1")
-	}
-	n = len(b[1])
-	a2 := copy(buf[:n], b[1])
-	if a1 != a2 {
-		println("copy mismatch!!!!!!", a1, a2)
-	}
-
-	for i, c := range buf3[:n] {
-		if i > len(buf) {
-			println("out of range!")
-		}
-		if buf[i] != c {
-			fmt.Printf("MISMATCH!(%d):  %#v, %#v", n, buf[:n], buf3[:n])
-			break
-		}
-	}
-
-	if n != len(b[1]) {
-		println("read cmd-read mismatch:", n, len(b[1]))
-	}
-
-	if len(buf3) != len(buf) || cap(buf3) != cap(buf) {
-		println("read mismatch!!!", len(buf), len(buf3), cap(buf), cap(buf3))
-	}
-
-	return len(buf[:n]), err
+	h.RPUSH("cmd-read-ack", []byte{})
+	return n, err
 }
 
 type testWriter struct{ *MyHandler }
 
 func (h *testWriter) Write(buf []byte) (int, error) {
-	n2, err := h.RPUSH("cmd-read", buf)
-	if n2 != 1 {
-		println("not alone2!!!!!!!")
-	}
-	n, err := w2.Write(buf)
-	if err != nil {
-		return n, err
-	}
-	if n != len(buf) {
-		println("write cmd-read mismatch:", n, len(buf))
-	}
+	_, err := h.RPUSH("cmd-read", buf)
+	h.BRPOP("cmd-read-ack")
 	return len(buf), err
 }
 
 func (h *testWriter) Read(buf []byte) (int, error) {
-	buf2 := make([]byte, len(buf), cap(buf))
-	buf3 := make([]byte, len(buf), cap(buf))
+	// FIXME: Make a FIFO stack to avoid issue with buf cap
 
-	b, err := h.BLPOP([]byte("cmd-write"))
-	// Make a FIFO stack to avoid issue with buf cap
-	if len(b[1]) > cap(buf) {
-		panic("------------------ READ 2")
-	}
-
-	n, err := r.Read(buf2)
+	b, err := h.BLPOP("cmd-write")
 	if err != nil {
-		return n, err
+		return 0, err
 	}
+	n := len(b[1])
+	copy(buf[:n], b[1])
 
-	a1 := copy(buf3[:n], buf2[:n])
-
-	if n != len(b[1]) {
-		println("____________ LEN MISMATCH22")
-	}
-	n = len(b[1])
-
-	a2 := copy(buf[:n], b[1])
-	if a1 != a2 {
-		println("copy2 mistach!!", a1, a2)
-	}
-
-	for i, c := range buf3[:n] {
-		if i > len(buf) {
-			println("out of range22!")
-		}
-		if buf[i] != c {
-			fmt.Printf("MISMATCH22!(%d) [:  >>>%s<<<<, >>>>%s<<<<<", n, buf[:n], buf3[:n])
-			break
-		}
-	}
-
-	if len(buf3) != len(buf) || cap(buf3) != cap(buf) {
-		println("read mismatch!!!", len(buf), len(buf3), cap(buf), cap(buf3))
-	}
-
-	// if n != len(b[1]) {
-	// 	println("read cmd-write mismatch:", n, len(b[1]))
-	// }
-
-	return len(buf[:n]), err
+	h.RPUSH("cmd-write-ack", []byte{})
+	return n, err
 }
 
 func (h *MyHandler) HSET(key, subkey string, value []byte) (int, error) {
@@ -219,7 +130,7 @@ func (h *MyHandler) HSET(key, subkey string, value []byte) (int, error) {
 
 				go io.Copy(os.Stdout, &testWriter{h})
 				go io.Copy(&testWriter{h}, os.Stdin)
-				h.BRPOP([]byte("CMDEND"))
+				h.BRPOP("CMDEND")
 			}
 		case "run":
 			if v, err := strconv.ParseBool(string(value)); err == nil && v {
