@@ -4,62 +4,133 @@ import (
 	"fmt"
 	"github.com/dotcloud/docker/0.x/term"
 	redis "github.com/dotcloud/go-redis-server"
+	redisclient "github.com/garyburd/redigo/redis"
 	"github.com/kr/pty"
 	"io"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 )
 
 type MyHandler struct {
 	redis.DefaultHandler
+	l             sync.Mutex
 	eng           *Engine
 	session       *Session
 	cmd           Cmd
 	master, slave *os.File
+	client1       redisclient.Conn
+	client2       redisclient.Conn
+	client3       redisclient.Conn
+	client4       redisclient.Conn
+}
+
+func (h *MyHandler) initClient() error {
+	h.l.Lock()
+	defer h.l.Unlock()
+
+	c, err := redisclient.Dial("unix", h.eng.Path("ctl"))
+	if err != nil {
+		println(err.Error())
+		os.Exit(1)
+	}
+	h.client1 = c
+
+	c, err = redisclient.Dial("unix", h.eng.Path("ctl"))
+	if err != nil {
+		println(err.Error())
+		os.Exit(1)
+	}
+	h.client2 = c
+
+	c, err = redisclient.Dial("unix", h.eng.Path("ctl"))
+	if err != nil {
+		println(err.Error())
+		os.Exit(1)
+	}
+	h.client3 = c
+
+	c, err = redisclient.Dial("unix", h.eng.Path("ctl"))
+	if err != nil {
+		println(err.Error())
+		os.Exit(1)
+	}
+	h.client4 = c
+
+	return nil
 }
 
 func (h *MyHandler) Write(buf []byte) (int, error) {
-	_, err := h.RPUSH("cmd-write", buf)
-	h.BRPOP("cmd-write-ack")
-	return len(buf), err
+	if h.client1 == nil {
+		h.initClient()
+	}
+	if _, err := h.client1.Do("RPUSH", "cmd-write", buf); err != nil {
+		return 0, err
+	}
+	if _, err := h.client1.Do("BRPOP", "cmd-write-ack", 0); err != nil {
+		return 0, err
+	}
+	return len(buf), nil
 }
 
 func (h *MyHandler) Read(buf []byte) (int, error) {
+	if h.client1 == nil {
+		h.initClient()
+	}
 	// FIXME: Make a FIFO stack to avoid issue with buf cap
 
-	b, err := h.BLPOP("cmd-read")
+	rep, err := h.client2.Do("BLPOP", "cmd-read", 0)
 	if err != nil {
 		return 0, err
 	}
-	n := len(b[1])
-	copy(buf[:n], b[1])
 
-	h.RPUSH("cmd-read-ack", []byte{})
+	b := rep.([]interface{})
+	n := len(b[1].([]byte))
+	copy(buf[:n], b[1].([]byte))
+
+	if _, err := h.client2.Do("RPUSH", "cmd-read-ack", []byte{}); err != nil {
+		return n, err
+	}
 	return n, err
 }
 
 type testWriter struct{ *MyHandler }
 
 func (h *testWriter) Write(buf []byte) (int, error) {
-	_, err := h.RPUSH("cmd-read", buf)
-	h.BRPOP("cmd-read-ack")
-	return len(buf), err
+	if h.client1 == nil {
+		h.initClient()
+	}
+
+	if _, err := h.client3.Do("RPUSH", "cmd-read", buf); err != nil {
+		return 0, err
+	}
+	if _, err := h.client3.Do("BRPOP", "cmd-read-ack", 0); err != nil {
+		return 0, err
+	}
+	return len(buf), nil
 }
 
 func (h *testWriter) Read(buf []byte) (int, error) {
+	if h.client1 == nil {
+		h.initClient()
+	}
 	// FIXME: Make a FIFO stack to avoid issue with buf cap
 
-	b, err := h.BLPOP("cmd-write")
+	rep, err := h.client4.Do("BLPOP", "cmd-write", 0)
 	if err != nil {
 		return 0, err
 	}
-	n := len(b[1])
-	copy(buf[:n], b[1])
 
-	h.RPUSH("cmd-write-ack", []byte{})
+	b := rep.([]interface{})
+	n := len(b[1].([]byte))
+	copy(buf[:n], b[1].([]byte))
+
+	if _, err := h.client4.Do("RPUSH", "cmd-write-ack", []byte{}); err != nil {
+		return n, err
+	}
 	return n, err
 }
 
