@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/dotcloud/docker/auth"
+	"github.com/dotcloud/docker/hooks"
 	"github.com/dotcloud/docker/registry"
 	"github.com/dotcloud/docker/utils"
 	"io"
@@ -76,7 +77,7 @@ func (srv *Server) ContainerKill(name string) error {
 		if err := container.Kill(); err != nil {
 			return fmt.Errorf("Error killing container %s: %s", name, err)
 		}
-		srv.LogEvent("kill", container.ShortID(), srv.runtime.repositories.ImageName(container.Image))
+		srv.LogEvent("container", "kill", nil, container)
 	} else {
 		return fmt.Errorf("No such container: %s", name)
 	}
@@ -95,7 +96,7 @@ func (srv *Server) ContainerExport(name string, out io.Writer) error {
 		if _, err := io.Copy(out, data); err != nil {
 			return err
 		}
-		srv.LogEvent("export", container.ShortID(), srv.runtime.repositories.ImageName(container.Image))
+		srv.LogEvent("container", "export", nil, container)
 		return nil
 	}
 	return fmt.Errorf("No such container: %s", name)
@@ -918,7 +919,7 @@ func (srv *Server) ContainerCreate(config *Config) (string, error) {
 		}
 		return "", err
 	}
-	srv.LogEvent("create", container.ShortID(), srv.runtime.repositories.ImageName(container.Image))
+	srv.LogEvent("container", "create", nil, container)
 	return container.ShortID(), nil
 }
 
@@ -927,7 +928,7 @@ func (srv *Server) ContainerRestart(name string, t int) error {
 		if err := container.Restart(t); err != nil {
 			return fmt.Errorf("Error restarting container %s: %s", name, err)
 		}
-		srv.LogEvent("restart", container.ShortID(), srv.runtime.repositories.ImageName(container.Image))
+		srv.LogEvent("container", "restart", nil, container)
 	} else {
 		return fmt.Errorf("No such container: %s", name)
 	}
@@ -947,7 +948,7 @@ func (srv *Server) ContainerDestroy(name string, removeVolume bool) error {
 		if err := srv.runtime.Destroy(container); err != nil {
 			return fmt.Errorf("Error destroying container %s: %s", name, err)
 		}
-		srv.LogEvent("destroy", container.ShortID(), srv.runtime.repositories.ImageName(container.Image))
+		srv.LogEvent("container", "destroy", nil, container)
 
 		if removeVolume {
 			// Retrieve all volumes from all remaining containers
@@ -977,9 +978,9 @@ func (srv *Server) ContainerDestroy(name string, removeVolume bool) error {
 
 var ErrImageReferenced = errors.New("Image referenced by a repository")
 
-func (srv *Server) deleteImageAndChildren(id string, imgs *[]APIRmi) error {
+func (srv *Server) deleteImageAndChildren(img *Image, imgs *[]APIRmi) error {
 	// If the image is referenced by a repo, do not delete
-	if len(srv.runtime.repositories.ByID()[id]) != 0 {
+	if len(srv.runtime.repositories.ByID()[img.ID]) != 0 {
 		return ErrImageReferenced
 	}
 	// If the image is not referenced but has children, go recursive
@@ -988,8 +989,8 @@ func (srv *Server) deleteImageAndChildren(id string, imgs *[]APIRmi) error {
 	if err != nil {
 		return err
 	}
-	for _, img := range byParents[id] {
-		if err := srv.deleteImageAndChildren(img.ID, imgs); err != nil {
+	for _, child := range byParents[img.ID] {
+		if err := srv.deleteImageAndChildren(child, imgs); err != nil {
 			if err != ErrImageReferenced {
 				return err
 			}
@@ -1005,16 +1006,16 @@ func (srv *Server) deleteImageAndChildren(id string, imgs *[]APIRmi) error {
 	if err != nil {
 		return err
 	}
-	if len(byParents[id]) == 0 {
-		if err := srv.runtime.repositories.DeleteAll(id); err != nil {
+	if len(byParents[img.ID]) == 0 {
+		if err := srv.runtime.repositories.DeleteAll(img.ID); err != nil {
 			return err
 		}
-		err := srv.runtime.graph.Delete(id)
+		err := srv.runtime.graph.Delete(img.ID)
 		if err != nil {
 			return err
 		}
-		*imgs = append(*imgs, APIRmi{Deleted: utils.TruncateID(id)})
-		srv.LogEvent("delete", utils.TruncateID(id), "")
+		*imgs = append(*imgs, APIRmi{Deleted: utils.TruncateID(img.ID)})
+		srv.LogEvent("image", "delete", img, nil)
 		return nil
 	}
 	return nil
@@ -1027,7 +1028,7 @@ func (srv *Server) deleteImageParents(img *Image, imgs *[]APIRmi) error {
 			return err
 		}
 		// Remove all children images
-		if err := srv.deleteImageAndChildren(img.Parent, imgs); err != nil {
+		if err := srv.deleteImageAndChildren(parent, imgs); err != nil {
 			return err
 		}
 		return srv.deleteImageParents(parent, imgs)
@@ -1061,10 +1062,10 @@ func (srv *Server) deleteImage(img *Image, repoName, tag string) ([]APIRmi, erro
 	}
 	if tagDeleted {
 		imgs = append(imgs, APIRmi{Untagged: img.ShortID()})
-		srv.LogEvent("untag", img.ShortID(), "")
+		srv.LogEvent("image", "untag", img, nil)
 	}
 	if len(srv.runtime.repositories.ByID()[img.ID]) == 0 {
-		if err := srv.deleteImageAndChildren(img.ID, &imgs); err != nil {
+		if err := srv.deleteImageAndChildren(img, &imgs); err != nil {
 			if err != ErrImageReferenced {
 				return imgs, err
 			}
@@ -1128,7 +1129,7 @@ func (srv *Server) ContainerStart(name string, hostConfig *HostConfig) error {
 		if err := container.Start(hostConfig); err != nil {
 			return fmt.Errorf("Error starting container %s: %s", name, err)
 		}
-		srv.LogEvent("start", container.ShortID(), srv.runtime.repositories.ImageName(container.Image))
+		srv.LogEvent("container", "start", nil, container)
 	} else {
 		return fmt.Errorf("No such container: %s", name)
 	}
@@ -1140,7 +1141,7 @@ func (srv *Server) ContainerStop(name string, t int) error {
 		if err := container.Stop(t); err != nil {
 			return fmt.Errorf("Error stopping container %s: %s", name, err)
 		}
-		srv.LogEvent("stop", container.ShortID(), srv.runtime.repositories.ImageName(container.Image))
+		srv.LogEvent("container", "stop", nil, container)
 	} else {
 		return fmt.Errorf("No such container: %s", name)
 	}
@@ -1311,7 +1312,27 @@ func (srv *Server) HTTPRequestFactory(metaHeaders map[string][]string) *utils.HT
 	return srv.reqFactory
 }
 
-func (srv *Server) LogEvent(action, id, from string) {
+func (srv *Server) LogEvent(hook, action string, image *Image, container *Container) {
+	from := ""
+	id := ""
+	if container != nil {
+		srv.runtime.repositories.ImageName(container.Image)
+		id = utils.TruncateID(container.ID)
+	} else if image != nil {
+		id = image.ShortID()
+	}
+	env := []string{}
+	if hook == "image" {
+		env = append(env, fmt.Sprintf("DOCKER_IMAGE_ID=%s", image.ID))
+		env = append(env, fmt.Sprintf("DOCKER_IMAGE_NAME=%s", srv.runtime.repositories.ImageName(image.ID)))
+	} else if hook == "container" {
+		env = append(env, fmt.Sprintf("DOCKER_CONTAINER_ID=%s", container.ID))
+		env = append(env, fmt.Sprintf("DOCKER_BRIDGE=%s", container.NetworkSettings.Bridge))
+		env = append(env, fmt.Sprintf("DOCKER_HOSTNAME=%s", container.Config.Hostname))
+	}
+	if len(env) != 0 {
+		hooks.Execute(hook, action, env)
+	} 
 	now := time.Now().Unix()
 	jm := utils.JSONMessage{Status: action, ID: id, From: from, Time: now}
 	srv.events = append(srv.events, jm)

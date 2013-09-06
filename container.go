@@ -895,7 +895,7 @@ func (container *Container) monitor() {
 	}
 	utils.Debugf("Process finished")
 	if container.runtime != nil && container.runtime.srv != nil {
-		container.runtime.srv.LogEvent("die", container.ShortID(), container.runtime.repositories.ImageName(container.Image))
+		container.runtime.srv.LogEvent("container", "die", nil, container)
 	}
 	exitCode := -1
 	if container.cmd != nil {

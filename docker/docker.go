@@ -4,11 +4,13 @@ import (
 	"flag"
 	"fmt"
 	"github.com/dotcloud/docker"
+	"github.com/dotcloud/docker/hooks"
 	"github.com/dotcloud/docker/utils"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/signal"
+	"path"
 	"strconv"
 	"strings"
 	"syscall"
@@ -126,6 +128,10 @@ func daemon(pidfile string, flGraphPath string, protoAddrs []string, autoRestart
 		removePidFile(pidfile)
 		os.Exit(0)
 	}()
+
+	if err := hooks.LoadAll(path.Join(flGraphPath, "hooks"), "DOCKER"); err != nil {
+		return err
+	}
 	var dns []string
 	if flDns != "" {
 		dns = []string{flDns}

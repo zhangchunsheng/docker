@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	//TO REMOVE
+	"github.com/dotcloud/docker/utils"
 )
 
 var (
@@ -16,6 +18,7 @@ type Hook struct {
 	Name string // Filepath
 	root string // Root path
 
+	prefix string
 	action string
 }
 
@@ -24,8 +27,8 @@ func (h *Hook) Hook() string {
 	return parts[0]
 }
 
-func LoadAll(root string) error {
-	return filepath.Walk(root, func(path string, fileInfo os.FileInfo, err error) error {
+func LoadAll(root, prefix string) error {
+	err := filepath.Walk(root, func(path string, fileInfo os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -34,18 +37,23 @@ func LoadAll(root string) error {
 			if err != nil {
 				return err
 			}
-			if err := NewHook(root, p); err != nil {
+			if err := NewHook(root, p, prefix); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
-func NewHook(root, name string) error {
+func NewHook(root, name, prefix string) error {
 	h := &Hook{
 		Name: name,
 		root: root,
+		prefix: prefix,
 	}
 	var action string
 	parts := strings.Split(name, "/")
@@ -60,18 +68,18 @@ func NewHook(root, name string) error {
 	}
 	hooks = append(hooks, h)
 	registeredHooks[h.Hook()] = hooks
-
+	//TO REMOVE
+	utils.Debugf("Registering a new hook in %s/%s", h.Hook(), action)
 	return nil
 }
 
 func Execute(hook, action string, env []string) error {
 	if hooks, exists := registeredHooks[hook]; exists {
-		env = append(env, fmt.Sprintf("DOCKER_ACTION=%s_%s", hook, action))
 
 		for _, h := range hooks {
 			if h.action == "" || h.action == action {
 				cmd := exec.Command(filepath.Join(h.root, h.Name))
-				cmd.Env = env
+				cmd.Env = append(env, fmt.Sprintf("%s_ACTION=%s_%s", h.prefix, hook, action))
 
 				if err := cmd.Run(); err != nil {
 					return fmt.Errorf("Hook failure: %s Error: %s", h.Name, err)
