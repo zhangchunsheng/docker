@@ -97,8 +97,8 @@ func TestGetEvents(t *testing.T) {
 		listeners: make(map[string]chan utils.JSONMessage),
 	}
 
-	srv.LogEvent("fakeaction", "fakeid", "fakeimage")
-	srv.LogEvent("fakeaction2", "fakeid", "fakeimage")
+	srv.LogEvent("hook", "fakeaction", &Image{ID: "fakeimage"}, &Container{ID: "fakeid", Image: "fakeimage"})
+	srv.LogEvent("hook", "fakeaction", &Image{ID: "fakeimage"}, &Container{ID: "fakeid", Image: "fakeimage"})
 
 	req, err := http.NewRequest("GET", "/events?since=1", nil)
 	if err != nil {
@@ -449,7 +449,7 @@ func TestGetContainersChanges(t *testing.T) {
 }
 
 func TestGetContainersTop(t *testing.T) {
-        t.Skip("Fixme. Skipping test for now. Reported error when testing using dind: 'api_test.go:527: Expected 2 processes, found 0.'")
+	t.Skip("Fixme. Skipping test for now. Reported error when testing using dind: 'api_test.go:527: Expected 2 processes, found 0.'")
 	runtime, err := newTestRuntime()
 	if err != nil {
 		t.Fatal(err)

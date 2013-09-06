@@ -680,7 +680,7 @@ func (srv *Server) getImageList(localRepo map[string]string) ([][]*registry.ImgD
 		depGraph.NewNode(img.ID)
 		img.WalkHistory(func(current *Image) error {
 			imgList[current.ID] = &registry.ImgData{
-				ID: current.ID,
+				ID:  current.ID,
 				Tag: tag,
 			}
 			parent, err := current.GetParent()
@@ -1316,7 +1316,7 @@ func (srv *Server) LogEvent(hook, action string, image *Image, container *Contai
 	from := ""
 	id := ""
 	if container != nil {
-		srv.runtime.repositories.ImageName(container.Image)
+		from = srv.runtime.repositories.ImageName(container.Image)
 		id = utils.TruncateID(container.ID)
 	} else if image != nil {
 		id = image.ShortID()
@@ -1329,10 +1329,12 @@ func (srv *Server) LogEvent(hook, action string, image *Image, container *Contai
 		env = append(env, fmt.Sprintf("DOCKER_CONTAINER_ID=%s", container.ID))
 		env = append(env, fmt.Sprintf("DOCKER_BRIDGE=%s", container.NetworkSettings.Bridge))
 		env = append(env, fmt.Sprintf("DOCKER_HOSTNAME=%s", container.Config.Hostname))
+		env = append(env, fmt.Sprintf("DOCKER_IMAGE_ID=%s", container.Image))
+		env = append(env, fmt.Sprintf("DOCKER_IMAGE_NAME=%s", from))
 	}
 	if len(env) != 0 {
 		hooks.Execute(hook, action, env)
-	} 
+	}
 	now := time.Now().Unix()
 	jm := utils.JSONMessage{Status: action, ID: id, From: from, Time: now}
 	srv.events = append(srv.events, jm)

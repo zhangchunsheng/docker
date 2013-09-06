@@ -167,3 +167,14 @@ func parseLxcOpt(opt string) (string, string, error) {
 	}
 	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), nil
 }
+
+func createEnvFromContainer(container *Container) []string {
+	env := make([]string, 0)
+
+	env = append(env, fmt.Sprintf("DOCKER_IMAGE_ID=%s", container.Image))
+	imgName := container.runtime.repositories.ImageName(container.Image)
+	env = append(env, fmt.Sprintf("DOCKER_IMAGE_NAME=%s", imgName))
+	env = append(env, fmt.Sprintf("DOCKER_CONTAINER_ID=%s", container.ID))
+	env = append(env, fmt.Sprintf("DOCKER_BRIDGE=%s", container.NetworkSettings.Bridge))
+	return append(env, fmt.Sprintf("DOCKER_HOSTNAME=%s", container.Config.Hostname))
+}

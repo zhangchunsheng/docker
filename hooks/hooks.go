@@ -78,6 +78,9 @@ func NewHook(root, name, prefix string) error {
 }
 
 func Execute(hook, action string, env []string) error {
+	if len(registeredHooks) == 0 {
+		return nil
+	}
 	if hooks, exists := registeredHooks[hook]; exists {
 
 		Sort(hooks)

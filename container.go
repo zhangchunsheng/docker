@@ -5,12 +5,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/dotcloud/docker/hooks"
 	"github.com/dotcloud/docker/term"
 	"github.com/dotcloud/docker/utils"
 	"github.com/kr/pty"
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path"
@@ -20,7 +22,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"net"
 )
 
 type Container struct {
@@ -813,10 +814,10 @@ func (container *Container) allocateNetwork() error {
 			iface = &NetworkInterface{disabled: true}
 		} else {
 			iface = &NetworkInterface{
-				IPNet: net.IPNet{IP: net.ParseIP(container.NetworkSettings.IPAddress), Mask: manager.bridgeNetwork.Mask},
+				IPNet:   net.IPNet{IP: net.ParseIP(container.NetworkSettings.IPAddress), Mask: manager.bridgeNetwork.Mask},
 				Gateway: manager.bridgeNetwork.IP,
 				manager: manager,
-				}
+			}
 			ipNum := ipToInt(iface.IPNet.IP)
 			manager.ipAllocator.inUse[ipNum] = struct{}{}
 		}
@@ -827,16 +828,20 @@ func (container *Container) allocateNetwork() error {
 		portSpecs = container.Config.PortSpecs
 	} else {
 		for backend, frontend := range container.NetworkSettings.PortMapping["Tcp"] {
-			portSpecs = append(portSpecs, fmt.Sprintf("%s:%s/tcp",frontend, backend))
+			portSpecs = append(portSpecs, fmt.Sprintf("%s:%s/tcp", frontend, backend))
 		}
 		for backend, frontend := range container.NetworkSettings.PortMapping["Udp"] {
-			portSpecs = append(portSpecs, fmt.Sprintf("%s:%s/udp",frontend, backend))
+			portSpecs = append(portSpecs, fmt.Sprintf("%s:%s/udp", frontend, backend))
 		}
 	}
 
 	container.NetworkSettings.PortMapping = make(map[string]PortMapping)
 	container.NetworkSettings.PortMapping["Tcp"] = make(PortMapping)
 	container.NetworkSettings.PortMapping["Udp"] = make(PortMapping)
+
+	env := createEnvFromContainer(container)
+	env = append(env, fmt.Sprintf("DOCKER_IP=%s", iface.IPNet.IP.String()))
+
 	for _, spec := range portSpecs {
 		nat, err := iface.AllocatePort(spec)
 		if err != nil {
@@ -846,12 +851,22 @@ func (container *Container) allocateNetwork() error {
 		proto := strings.Title(nat.Proto)
 		backend, frontend := strconv.Itoa(nat.Backend), strconv.Itoa(nat.Frontend)
 		container.NetworkSettings.PortMapping[proto][backend] = frontend
+
+		cEnv := append(env, fmt.Sprintf("DOCKER_CONTAINER_PORT=%d", nat.Backend))
+		cEnv = append(cEnv, fmt.Sprintf("DOCKER_HOST_PORT=%d", nat.Frontend))
+		cEnv = append(cEnv, fmt.Sprintf("DOCKER_PROTO=%s", proto))
+
+		if err := hooks.Execute("network", "allocate", cEnv); err != nil {
+			return err
+		}
 	}
+
 	container.network = iface
 	container.NetworkSettings.Bridge = container.runtime.networkManager.bridgeIface
 	container.NetworkSettings.IPAddress = iface.IPNet.IP.String()
 	container.NetworkSettings.IPPrefixLen, _ = iface.IPNet.Mask.Size()
 	container.NetworkSettings.Gateway = iface.Gateway.String()
+
 	return nil
 }
 
@@ -860,6 +875,21 @@ func (container *Container) releaseNetwork() {
 		return
 	}
 	container.network.Release()
+	env := createEnvFromContainer(container)
+	env = append(env, fmt.Sprintf("DOCKER_IP=%s", container.NetworkSettings.IPAddress))
+
+	for proto, mapping := range container.NetworkSettings.PortMapping {
+		for backend, frontend := range mapping {
+			cEnv := append(env, fmt.Sprintf("DOCKER_CONTAINER_PORT=%d", backend))
+			cEnv = append(cEnv, fmt.Sprintf("DOCKER_HOST_PORT=%d", frontend))
+			cEnv = append(cEnv, fmt.Sprintf("DOCKER_PROTO=%s", proto))
+
+			if err := hooks.Execute("network", "deallocate", cEnv); err != nil {
+				utils.Debugf("Error executing hook: %s", err)
+			}
+		}
+	}
+
 	container.network = nil
 	container.NetworkSettings = &NetworkSettings{}
 }
