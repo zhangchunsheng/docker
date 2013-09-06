@@ -16,15 +16,12 @@ var (
 
 type Hook struct {
 	Name string // Filepath
-	root string // Root path
 
-	prefix string
-	action string
-}
-
-func (h *Hook) Hook() string {
-	parts := strings.Split(h.Name, "/")
-	return parts[0]
+	root     string // Root path
+	fileName string
+	hookName string
+	prefix	 string
+	action   string
 }
 
 func LoadAll(root, prefix string) error {
@@ -50,6 +47,9 @@ func LoadAll(root, prefix string) error {
 }
 
 func NewHook(root, name, prefix string) error {
+	if name[0] == '/' {
+		name = name[1:]
+	}
 	h := &Hook{
 		Name: name,
 		root: root,
@@ -57,24 +57,28 @@ func NewHook(root, name, prefix string) error {
 	}
 	var action string
 	parts := strings.Split(name, "/")
+	h.hookName = parts[0]
 	if len(parts) > 2 {
 		action = parts[1]
 	}
 	h.action = action
+	h.fileName = filepath.Base(name)
 
-	hooks, exits := registeredHooks[h.Hook()]
+	hooks, exits := registeredHooks[h.hookName]
 	if !exits {
 		hooks = make([]*Hook, 0)
 	}
 	hooks = append(hooks, h)
-	registeredHooks[h.Hook()] = hooks
+	registeredHooks[h.hookName] = hooks
 	//TO REMOVE
-	utils.Debugf("Registering a new hook in %s/%s", h.Hook(), action)
+	utils.Debugf("Registering a new hook in %s/%s", h.hookName, action)
 	return nil
 }
 
 func Execute(hook, action string, env []string) error {
 	if hooks, exists := registeredHooks[hook]; exists {
+
+		Sort(hooks)
 
 		for _, h := range hooks {
 			if h.action == "" || h.action == action {
