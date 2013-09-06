@@ -5,7 +5,7 @@ import (
 )
 
 func TestNewHook(t *testing.T) {
-	if err := NewHook("/var/lib/docker/hooks", "/network/alloc/0_network.sh"); err != nil {
+	if err := NewHook("/var/lib/docker/hooks", "/network/alloc/0_network.sh", "DOCKER"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -30,8 +30,8 @@ func TestNewHook(t *testing.T) {
 		t.Fail()
 	}
 
-	if h.hookName != "network" {
-		t.Log(h.hookName)
+	if h.category != "network" {
+		t.Log(h.category)
 		t.Fail()
 	}
 
