@@ -1333,7 +1333,7 @@ func (srv *Server) LogEvent(hook, action string, image *Image, container *Contai
 		env = append(env, fmt.Sprintf("DOCKER_IMAGE_NAME=%s", from))
 	}
 	if len(env) != 0 {
-		hooks.Execute(hook, action, env)
+		hooks.Execute(hook, action, "post", env)
 	}
 	now := time.Now().Unix()
 	jm := utils.JSONMessage{Status: action, ID: id, From: from, Time: now}

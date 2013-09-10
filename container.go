@@ -843,6 +843,11 @@ func (container *Container) allocateNetwork() error {
 	env = append(env, fmt.Sprintf("DOCKER_IP=%s", iface.IPNet.IP.String()))
 
 	for _, spec := range portSpecs {
+		cEnvPre := append(env, fmt.Sprintf("DOCKER_CONTAINER_SPEC=%s", spec))
+		if err := hooks.Execute("network", "allocate", "pre", cEnvPre); err != nil {
+			return err
+		}
+
 		nat, err := iface.AllocatePort(spec)
 		if err != nil {
 			iface.Release()
@@ -852,11 +857,10 @@ func (container *Container) allocateNetwork() error {
 		backend, frontend := strconv.Itoa(nat.Backend), strconv.Itoa(nat.Frontend)
 		container.NetworkSettings.PortMapping[proto][backend] = frontend
 
-		cEnv := append(env, fmt.Sprintf("DOCKER_CONTAINER_PORT=%d", nat.Backend))
-		cEnv = append(cEnv, fmt.Sprintf("DOCKER_HOST_PORT=%d", nat.Frontend))
-		cEnv = append(cEnv, fmt.Sprintf("DOCKER_PROTO=%s", proto))
-
-		if err := hooks.Execute("network", "allocate", cEnv); err != nil {
+		cEnvPost := append(env, fmt.Sprintf("DOCKER_CONTAINER_PORT=%d", nat.Backend))
+		cEnvPost = append(cEnvPost, fmt.Sprintf("DOCKER_HOST_PORT=%d", nat.Frontend))
+		cEnvPost = append(cEnvPost, fmt.Sprintf("DOCKER_PROTO=%s", proto))
+		if err := hooks.Execute("network", "allocate", "post", cEnvPost); err != nil {
 			return err
 		}
 	}
@@ -874,21 +878,29 @@ func (container *Container) releaseNetwork() {
 	if container.Config.NetworkDisabled {
 		return
 	}
-	container.network.Release()
+
 	env := createEnvFromContainer(container)
 	env = append(env, fmt.Sprintf("DOCKER_IP=%s", container.NetworkSettings.IPAddress))
 
-	for proto, mapping := range container.NetworkSettings.PortMapping {
-		for backend, frontend := range mapping {
-			cEnv := append(env, fmt.Sprintf("DOCKER_CONTAINER_PORT=%d", backend))
-			cEnv = append(cEnv, fmt.Sprintf("DOCKER_HOST_PORT=%d", frontend))
-			cEnv = append(cEnv, fmt.Sprintf("DOCKER_PROTO=%s", proto))
+	executeHooks := func(mode string, env []string) {
+		for proto, mapping := range container.NetworkSettings.PortMapping {
+			for backend, frontend := range mapping {
+				cEnv := append(env, fmt.Sprintf("DOCKER_CONTAINER_PORT=%d", backend))
+				cEnv = append(cEnv, fmt.Sprintf("DOCKER_HOST_PORT=%d", frontend))
+				cEnv = append(cEnv, fmt.Sprintf("DOCKER_PROTO=%s", proto))
 
-			if err := hooks.Execute("network", "deallocate", cEnv); err != nil {
-				utils.Debugf("Error executing hook: %s", err)
+				if err := hooks.Execute("network", "deallocate", mode, cEnv); err != nil {
+					utils.Debugf("Error executing hook: %s", err)
+				}
 			}
 		}
 	}
+
+	executeHooks("pre", env)
+
+	container.network.Release()
+
+	executeHooks("post", env)
 
 	container.network = nil
 	container.NetworkSettings = &NetworkSettings{}
