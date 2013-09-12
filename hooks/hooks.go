@@ -85,8 +85,9 @@ func NewHook(root, name, prefix string) error {
 func (h *Hook) executeWithTimeout(hook, action, mode string, env []string) error {
 	c := make(chan error, 1)
 
+	var cmd exec.Cmd
 	go func() {
-		cmd := exec.Command(h.Path())
+		cmd = exec.Command(h.Path())
 		env = append(env, fmt.Sprintf("%s_ACTION=%s_%s", h.prefix, hook, action))
 		cmd.Env = append(env, fmt.Sprintf("%s_MODE=%s", h.prefix, mode))
 
@@ -102,6 +103,9 @@ func (h *Hook) executeWithTimeout(hook, action, mode string, env []string) error
 			return err
 		}
 	case <-time.After(2 * time.Second):
+		if err := cmd.Process.Kill(); err != nil {
+			return err
+		}
 		return fmt.Errorf("Hook failure: %s Error: timeout", h.Path())
 	}
 	return nil
