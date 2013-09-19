@@ -180,6 +180,54 @@ func CopyWithTar(src, dst string) error {
 	return TarUntar(src, nil, dst)
 }
 
+type tarStreamer struct {
+	source   *os.File
+	tw       *tar.Writer
+	tr       *tar.Reader
+	buff     *bytes.Buffer
+	finished bool
+}
+
+func (t *tarStreamer) Close() error {
+	t.tw.Close()
+	return t.source.Close()
+}
+
+func (t *tarStreamer) WriteHeader(hdr *tar.Header) error {
+	return t.tw.WriteHeader(hdr)
+}
+
+func (t *tarStreamer) Read(p []byte) (int, error) {
+	if t.finished {
+		return t.buff.Read(p)
+	}
+	buf := make([]byte, len(p), cap(p))
+	i, err := t.source.Read(buf)
+	if err != nil {
+		if err == io.EOF {
+			t.finished = true
+		} else {
+			return i, err
+		}
+	}
+	if _, err := t.tw.Write(buf[:i]); err != nil {
+		return i, err
+	}
+	t.tw.Flush()
+	return t.buff.Read(p)
+}
+
+func newTarStreamer(s *os.File) *tarStreamer {
+	buff := bytes.NewBuffer(nil)
+	tw := tar.NewWriter(buff)
+
+	return &tarStreamer{
+		source: s,
+		buff:   buff,
+		tw:     tw,
+	}
+}
+
 // CopyFileWithTar emulates the behavior of the 'cp' command-line
 // for a single file. It copies a regular file from path `src` to
 // path `dst`, and preserves all its metadata.
@@ -203,8 +251,12 @@ func CopyFileWithTar(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil && !os.IsExist(err) {
 		return err
 	}
-	buf := new(bytes.Buffer)
-	tw := tar.NewWriter(buf)
+	srcF, err := os.Open(src) // the tar streamer will close the underlying file, no need to call close here
+	if err != nil {
+		return err
+	}
+
+	tw := newTarStreamer(srcF)
 	hdr, err := tar.FileInfoHeader(srcSt, "")
 	if err != nil {
 		return err
@@ -213,15 +265,9 @@ func CopyFileWithTar(src, dst string) error {
 	if err := tw.WriteHeader(hdr); err != nil {
 		return err
 	}
-	srcF, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(tw, srcF); err != nil {
-		return err
-	}
-	tw.Close()
-	return Untar(buf, filepath.Dir(dst))
+	defer tw.Close()
+
+	return Untar(tw, filepath.Dir(dst))
 }
 
 // CmdStream executes a command, and returns its stdout as a stream.
