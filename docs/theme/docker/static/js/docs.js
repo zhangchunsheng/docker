@@ -54,9 +54,12 @@ $(function(){
         }
     }
 
-    
-    console.log(doc_slug);
-    $("#versionWidget a:contains('Master')").parent().addClass('active-slug');
+    if (doc_version == "") {
+        $('.version-flyer ul').html('<li class="alternative active-slug"><a href="" title="Switch to local">Local</a></li>');
+    }
+
+    // mark the active documentation in the version widget
+    $("#versionWidget a:contains(doc_version)").parent().addClass('active-slug');
 
 
     // attached handler on click

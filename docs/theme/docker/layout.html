@@ -48,6 +48,7 @@
 
 <body>
 
+<div id="wrap">
 <div class="navbar navbar-static-top navbar-inner navbar-fixed-top ">
     <div class="navbar-dotcloud">
         <div class="container">
@@ -71,7 +72,6 @@
     </div>
 </div>
 
-
 <div class="container">
 
     <!-- Docs nav
@@ -79,13 +79,14 @@
     <div class="row main-row">
 
         <div class="span3 sidebar bs-docs-sidebar">
-            <div class="page-title" style="width: 100% text-align: center;">
+            <div class="page-title" >
                 <h4>DOCUMENTATION</h4>
             </div>
             
             {{ toctree(collapse=False, maxdepth=3) }}
 	    <form>
 	      <input type="text" id="st-search-input" class="st-search-input span3" style="width:160px;" />
+          <div id="st-results-container"></div>
 	    </form>
         </div>
 
@@ -98,29 +99,13 @@
                 {% block body %}{% endblock %}
             </section>
 
-	    <!-- Swiftype search -->
-	    <div id="st-results-container"></div>
-	    <script type="text/javascript">
-	      var Swiftype = window.Swiftype || {};
-	      (function() {
-	      Swiftype.key = 'pWPnnyvwcfpcrw1o51Sz';
-	      Swiftype.inputElement = '#st-search-input';
-	      Swiftype.resultContainingElement = '#st-results-container';
-	      Swiftype.attachElement = '#st-search-input';
-	      Swiftype.renderStyle = "overlay";
-
-	      var script = document.createElement('script');
-	      script.type = 'text/javascript';
-	      script.async = true;
-	      script.src = "//swiftype.com/embed.js";
-	      var entry = document.getElementsByTagName('script')[0];
-	      entry.parentNode.insertBefore(script, entry);
-	      }());
-	    </script>
-
+            <div class="pull-right"><a href="https://github.com/dotcloud/docker/blob/{{ current_version }}/docs/sources/{{ pagename }}.rst" title="edit this article">Edit this article on GitHub</a></div>
         </div>
     </div>
 </div>
+
+<div id="push"></div>
+</div> <!-- end wrap for pushing footer -->
 
 <div id="footer">
     <div class="footer-landscape">
@@ -140,7 +125,7 @@
 
                         <div class="tbox version-flyer ">
                             <div class="content">
-                                <small>Switch version:</small>
+                                <small>Current version:</small>
                                 <ul class="inline">
                                     {% for slug, url in versions %}
                                     <li class="alternative"><a href="{{ url }}" title="Switch to {{ slug }}">{{ slug }}</a></li>
@@ -160,6 +145,27 @@
 
 
 <script type="text/javascript" src="{{ pathto('_static/js/docs.js', 1) }}"></script>
+
+<!-- Swiftype search -->
+
+<script type="text/javascript">
+  var Swiftype = window.Swiftype || {};
+  (function() {
+  Swiftype.key = 'pWPnnyvwcfpcrw1o51Sz';
+  Swiftype.inputElement = '#st-search-input';
+  Swiftype.resultContainingElement = '#st-results-container';
+  Swiftype.attachElement = '#st-search-input';
+  Swiftype.renderStyle = "overlay";
+
+  var script = document.createElement('script');
+  script.type = 'text/javascript';
+  script.async = true;
+  script.src = "//swiftype.com/embed.js";
+  var entry = document.getElementsByTagName('script')[0];
+  entry.parentNode.insertBefore(script, entry);
+  }());
+</script>
+
 
 <!-- Google analytics -->
 <script type="text/javascript">

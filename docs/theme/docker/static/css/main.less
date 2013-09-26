@@ -43,7 +43,7 @@
 
 // moving body down to make place for fixed navigation
 body {
-	margin-top: @navbar-height;
+	// margin-top: @navbar-height;
     background-color: #f2f2f2;
 //    padding-top: -@navbar-height;
 //    margin-top: -70px;
@@ -294,7 +294,7 @@ span.read-more {
    Sticky footer
 ======================= */
 
-@sticky-footer-height: 250px;
+@sticky-footer-height: 280px;
 
 html,
 body {
@@ -309,6 +309,11 @@ body {
   height: 100%;
   /* Negative indent footer by it's height */
   margin: 0 auto -@sticky-footer-height;
+  // margin: @navbar-height auto -100;
+  // margin-top: @navbar-height;
+  // margin-bottom: -500px;
+  // padding-top: 60px;
+  // margin-top: -60px;
 }
 
 /* Set the fixed height of the footer here */
@@ -320,7 +325,10 @@ body {
 #footer {
 //    margin-bottom: -60px;
 //  margin-top: 160px;
+}
 
+.main-row {
+  padding-top: @navbar-height; 
 }
 
 
@@ -484,8 +492,11 @@ div.alert.alert-block {
   background-color: white;
   border: 1px solid transparent;
   text-align: center;
+  width: 100%;
+  h4 {
+    font-size: 20px;
+  }
 }
-
 
 .bs-docs-sidebar {
   padding-left: 5px;
@@ -505,7 +516,7 @@ div.alert.alert-block {
     // margin-left: -3px;
 
     &.toctree-l1.has-children {
-        background-image: url('/_static/img/menu_arrow_right.gif');
+        background-image: url('../img/menu_arrow_right.gif');
         background-repeat: no-repeat;
         background-position: 13px 13px;
         list-style-type: none;
@@ -514,14 +525,8 @@ div.alert.alert-block {
         vertical-align: middle;
 
         &.open {
-          background-image: url('/_static/img/menu_arrow_down.gif');
+          background-image: url('../img/menu_arrow_down.gif');
         }
-    }
-
-    &.toctree-l1 > a:before {
-     // content: url('/_static/img/menu_arrow.gif');
-//      content: url('/_static/favicon.png');
-//      content: " <div class=debug>hello</div> "
     }
 
     & > a {
@@ -588,7 +593,7 @@ div.alert.alert-block {
     margin-top: 7px;
     margin-left: 7px;
     // display: inline-block;
-    background-image: url('/_static/img/container3.png');
+    background-image: url('../img/container3.png');
     background-position: right center; 
     background-repeat: no-repeat;
   }
