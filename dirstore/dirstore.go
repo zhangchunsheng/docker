@@ -3,7 +3,6 @@
 //
 // This package offers convenience functions to manipulate these directories
 // in a reliable and atomic way.
-
 package dirstore
 
 import (
@@ -16,6 +15,10 @@ import (
 	"encoding/hex"
 )
 
+// List returns the IDs of all directories currently registered in <store>.
+// <store> should be the path of the store on the filesystem.
+// Each returned ID is such that path.Join(store, id) is the path to that
+// directory on the filesystem.
 func List(store string) ([]string, error) {
 	allDirs, err := listDir(store)
 	if err != nil {
@@ -31,6 +34,9 @@ func List(store string) ([]string, error) {
 	return dirs, nil
 }
 
+// Create creates a new directory identified as <id> in the store <store>.
+// If <store> doesn't exist on the filesystem, it is created.
+// If <id> is an empty string, a new unique ID is generated and returned.
 func Create(store string, id string) (dir string, err error) {
 	if err := validateId(id); err != nil {
 		return nil, err
