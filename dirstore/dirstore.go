@@ -32,6 +32,9 @@ func List(store string) ([]string, error) {
 }
 
 func Create(store string, id string) (dir string, err error) {
+	if err := validateId(id); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(store, 0700); err != nil {
 		return "", err
 	}
@@ -62,6 +65,9 @@ func Create(store string, id string) (dir string, err error) {
 // Trash doesn't remove the actual filesystem tree from the store.
 // EmptyTrash should be called for that.
 func Trash(store string, id string) error {
+	if err := validateId(id); err != nil {
+		return err
+	}
 	garbageDir := "_" + mkRandomId()
 	err := os.Rename(id, garbageDir)
 	if err != nil {
@@ -112,4 +118,11 @@ func mkRandomId() string {
 		panic(err) // This shouldn't happen
 	}
 	return hex.EncodeToString(id)
+}
+
+func validateId(id string) error {
+	if id == "" || id[0] == '_' {
+		return fmt.Errorf("Invalid ID: '%s'", id)
+	}
+	return nil
 }
