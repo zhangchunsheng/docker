@@ -59,7 +59,7 @@ $(function(){
     }
 
     // mark the active documentation in the version widget
-    $("#versionWidget a:contains(doc_version)").parent().addClass('active-slug');
+    $("#versionWidget a:contains('" + doc_version + "')").parent().addClass('active-slug');
 
 
     // attached handler on click
