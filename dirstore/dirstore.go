@@ -13,7 +13,10 @@ import (
 	"io"
 	"crypto/rand"
 	"encoding/hex"
+	"strings"
 )
+
+const TRASH_PREFIX string = "_trash_"
 
 // List returns the IDs of all directories currently registered in <store>.
 // <store> should be the path of the store on the filesystem.
@@ -26,7 +29,7 @@ func List(store string) ([]string, error) {
 	}
 	dirs := make([]string, 0, len(allDirs))
 	for _, dir := range allDirs {
-		if dir[0] == '_' {
+		if isHidden(dir) {
 			continue
 		}
 		dirs = append(dirs, dir)
@@ -39,7 +42,7 @@ func List(store string) ([]string, error) {
 // If <id> is an empty string, a new unique ID is generated and returned.
 func Create(store string, id string) (dir string, err error) {
 	if err := validateId(id); err != nil {
-		return nil, err
+		return "", err
 	}
 	if err := os.MkdirAll(store, 0700); err != nil {
 		return "", err
@@ -74,7 +77,7 @@ func Trash(store string, id string) error {
 	if err := validateId(id); err != nil {
 		return err
 	}
-	garbageDir := "_" + mkRandomId()
+	garbageDir := "_trash_" + mkRandomId()
 	err := os.Rename(id, garbageDir)
 	if err != nil {
 		return err
@@ -92,7 +95,7 @@ func EmptyTrash(store string) error {
 		return err
 	}
 	for _, dir := range dirs {
-		if dir[0] == '_' {
+		if isTrash(dir) {
 			if err := os.RemoveAll(path.Join(store, dir)); err != nil {
 				return err
 			}
@@ -127,8 +130,18 @@ func mkRandomId() string {
 }
 
 func validateId(id string) error {
-	if id == "" || id[0] == '_' {
+	// Spaces are used as a separator for the suffixarray lookup.
+	// FIXME: use a \n separator instead
+	if id == "" || isHidden(id) || strings.Contains(id, " ") {
 		return fmt.Errorf("Invalid ID: '%s'", id)
 	}
 	return nil
+}
+
+func isHidden(id string) bool {
+	return strings.HasPrefix(id, "_")
+}
+
+func isTrash(id string) bool {
+	return strings.HasPrefix(id, TRASH_PREFIX)
 }
