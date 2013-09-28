@@ -152,7 +152,7 @@ body {
   margin: 0 auto -280px;
 }
 /* Set the fixed height of the footer here */
-#push,
+#push-the-footer,
 #footer {
   height: 280px;
 }

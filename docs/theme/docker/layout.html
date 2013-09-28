@@ -1,11 +1,7 @@
 <!DOCTYPE html>
-<!--[if lt IE 7]>      <html class="no-js lt-ie9 lt-ie8 lt-ie7"> <![endif]-->
-<!--[if IE 7]>         <html class="no-js lt-ie9 lt-ie8"> <![endif]-->
-<!--[if IE 8]>         <html class="no-js lt-ie9"> <![endif]-->
-<!--[if gt IE 8]><!--> <html class="no-js"> <!--<![endif]-->
 <head>
     <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="google-site-verification" content="UxV66EKuPe87dgnH1sbrldrx6VsoWMrx5NjwkgUFxXI" />
     <title>{{ meta['title'] if meta and meta['title'] else title }} - Docker Documentation</title>
     <meta name="description" content="{{ meta['description'] if meta }}" />
@@ -61,12 +57,12 @@
                     <li id="nav-community"><a href="http://www.docker.io/community/" title="Community">Community</a></li>
                     <li id="nav-documentation" class="active"><a href="http://docs.docker.io/en/latest/">Documentation</a></li>
                     <li id="nav-blog"><a href="http://blog.docker.io/" title="Docker Blog">Blog</a></li>
-                    <li id="nav-index"><a href="http://index.docker.io/" title="Docker Image Index, find images here">INDEX <img class="inline-icon" src="{{ pathto('_static/img/external-link-icon.png', 1) }}" title="external link"> </a></li>
+                    <li id="nav-index"><a href="http://index.docker.io/" title="Docker Image Index, find images here">INDEX <img class="inline-icon" alt="link to external site" src="{{ pathto('_static/img/external-link-icon.png', 1) }}" title="external link"> </a></li>
                 </ul>
             </div>
 
             <div class="brand-logo">
-                <a href="http://www.docker.io" title="Docker Homepage"><img src="{{ pathto('_static/img/docker-top-logo.png', 1) }}"></a>
+                <a href="http://www.docker.io" title="Docker Homepage"><img src="{{ pathto('_static/img/docker-top-logo.png', 1) }}" alt="Docker logo"></a>
             </div>
         </div>
     </div>
@@ -104,7 +100,7 @@
     </div>
 </div>
 
-<div id="push"></div>
+<div id="push-the-footer"></div>
 </div> <!-- end wrap for pushing footer -->
 
 <div id="footer">
@@ -128,7 +124,7 @@
                                 <small>Current version:</small>
                                 <ul class="inline">
                                     {% for slug, url in versions %}
-                                    <li class="alternative"><a href="{{ url }}" title="Switch to {{ slug }}">{{ slug }}</a></li>
+                                    <li class="alternative"><a href="{{ url }}{{ pagename }}/" title="Switch to {{ slug }}">{{ slug }}</a></li>
                                     {% endfor %}
                                 </ul>
                             </div>

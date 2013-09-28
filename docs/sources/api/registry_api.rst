@@ -6,7 +6,6 @@
 Docker Registry API
 ===================
 
-.. contents:: Table of Contents
 
 1. Brief introduction
 =====================
@@ -456,8 +455,8 @@ Ancestry
     :statuscode 401: Requires authorization
     :statuscode 404: Repository not found
 
-3.0 Authorization
-=================
+3 Authorization
+===============
 This is where we describe the authorization process, including the tokens and cookies. 
 
 TODO: add more info.

@@ -4,9 +4,8 @@
 
 .. _examples:
 
-Examples
---------
-
+Hello World
+-----------
 
 .. _running_examples:
 
@@ -177,6 +176,6 @@ you could skip to any of the other examples:
 * :ref:`nodejs_web_app`
 * :ref:`running_redis_service`
 * :ref:`running_ssh_service`
-* :ref:`couchdb_data_volumes`
+* :ref:`running_couchdb_service`
 * :ref:`postgresql_service`
 * :ref:`mongodb`

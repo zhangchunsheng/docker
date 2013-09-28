@@ -22,8 +22,6 @@ To list available commands, either run ``docker`` with no parameters or execute
     ...
 
 
-.. contents:: Table of Contents
-
 
 Available Commands
 ~~~~~~~~~~~~~~~~~~
