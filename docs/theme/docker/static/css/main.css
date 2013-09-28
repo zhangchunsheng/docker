@@ -1,9 +1,9 @@
 .debug {
   border: 2px dotted red !important;
   box-sizing: border-box;
+  -moz-box-sizing: border-box;
 }
 body {
-  background-color: #f2f2f2;
   min-width: 940px;
   font-family: "Cabin", "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
@@ -187,10 +187,7 @@ body {
   margin-top: 40px;
 }
 .main-content {
-  background-color: white;
-  padding-top: 30px;
-  padding-bottom: 30px;
-  padding: 18px;
+  padding: 16px 18px inherit;
 }
 /* =======================
    Social footer
@@ -257,10 +254,15 @@ div.alert.alert-block {
   padding-left: 5px;
   max-width: 100%;
   box-sizing: border-box;
+  -moz-box-sizing: border-box;
+  margin-top: 18px;
 }
 .bs-docs-sidebar ul {
   list-style: none;
   margin-left: 0px;
+}
+.bs-docs-sidebar .toctree-l2 > ul {
+  width: 100%;
 }
 .bs-docs-sidebar ul > li.toctree-l1.has-children {
   background-image: url('../img/menu_arrow_right.gif');
@@ -275,6 +277,7 @@ div.alert.alert-block {
 }
 .bs-docs-sidebar ul > li > a {
   box-sizing: border-box;
+  -moz-box-sizing: border-box;
   width: 100%;
   display: inline-block;
   padding-top: 8px;
@@ -302,8 +305,30 @@ div.alert.alert-block {
 .bs-docs-sidebar ul > li:hover {
   background-color: #e8e8e8;
 }
+.bs-docs-sidebar.toctree-l3 ul {
+  display: inherit;
+  margin-left: 15px;
+  font-size: smaller;
+}
+.bs-docs-sidebar .toctree-l3 a {
+  border: none;
+  font-size: 12px;
+  line-height: 15px;
+}
 .bs-docs-sidebar ul > li > ul {
-  content: none;
+  display: none;
+}
+.bs-docs-sidebar ul > li.current > ul {
+  display: inline-block;
+  padding-left: 0px;
+  width: 100%;
+}
+.toctree-l2.current > a {
+  font-weight: bold;
+}
+.toctree-l2.current {
+  border: 1.5px solid #595959;
+  color: #394d54;
 }
 /* =====================================
   Styles for the floating version widget
@@ -361,3 +386,26 @@ dt:hover > a.headerlink {
 /* =====================================
   Miscellaneous information
 ====================================== */
+.admonition.warning,
+.admonition.note,
+.admonition.seealso,
+.admonition.todo {
+  border: 3px solid black;
+  padding: 10px;
+  margin: 5px auto 10px;
+}
+.admonition .admonition-title {
+  font-size: larger;
+}
+.admonition.warning {
+  border-color: #ac0004;
+}
+.admonition.note {
+  border-color: #cbc200;
+}
+.admonition.todo {
+  border-color: orange;
+}
+.admonition.seealso {
+  border-color: #23cb1f;
+}

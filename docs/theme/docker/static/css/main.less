@@ -1,11 +1,10 @@
 // Main CSS configuration file
 // by Thatcher Peskens, thatcher@dotcloud.com
 //
-// Please note bootstrap is customized to include custom font, background-color, and link colors.
+// Please note variables.less is customized to include custom font, background-color, and link colors.
 
 
 @import "variables.less";
-
 
 // Variables for main.less
 // -----------------------
@@ -25,8 +24,9 @@
 
 
 .debug {
-	border: 2px dotted red !important;
+  border: 2px dotted red !important;
   box-sizing: border-box;
+  -moz-box-sizing: border-box;
 }
 
 
@@ -43,20 +43,11 @@
 
 // moving body down to make place for fixed navigation
 body {
-	// margin-top: @navbar-height;
-    background-color: #f2f2f2;
-//    padding-top: -@navbar-height;
-//    margin-top: -70px;
-  // setting fixed width
   min-width: 940px;
   font-family: @font-family-base;
 
 }
 
-
-p {
-
-}
 
 p a {
 	text-decoration: underline;
@@ -64,11 +55,6 @@ p a {
     &.btn {
       text-decoration: none;
     }
-
-}
-
-a {
-//  text-decoration: underline;
 
 }
 
@@ -81,7 +67,6 @@ a {
 .navbar .navbar-inner {
 	padding-left: 0px;
 	padding-right: 0px;
-//	margin-top: -1px;
 }
 
 .navbar .nav {
@@ -92,7 +77,6 @@ a {
     text-shadow: 0 1px 0 #f2f2f2;
   }
 }
-
 
 
 .navbar .nav > li {
@@ -119,16 +103,6 @@ a {
 	margin-left: 0px;
 	float: left;
 	display: block;
-	// Vertically center the text given @navbar-height
-//	padding: ((@navbar-height - @line-height-base) / 2) 20px ((@navbar-height - @line-height-base) / 2);
-//	font-size: 20px;
-//	font-weight: 200;
-//	color: @deep-red;
-//	text-shadow: 0 1px 0 @navbarBackgroundHighlight;
-//	&:hover,
-//	&:focus {
-//		text-decoration: none;
-//	}
 }
 
 .navbar-inner {
@@ -208,15 +182,6 @@ div[class*='span']
 //  border-bottom: 1.2px solid @veryDarkSeaGreen;
 }
 
-.paper h1 {
-//  background-color: darkred;
-//  background-position: -100px;
-}
-
-.content.row {
-//  .debug;
-}
-
 .box {
 	h1, h2, h3, h4 {
 		margin-top: -5px;
@@ -232,19 +197,8 @@ div[class*='span']
 }
 
 span.read-more {
-//  display: block;
-//  float: left;
-//  font-size: larger;
-//  margin-right: 15%;
-
-//  margin: 8px;
-
   margin-left: 15px;
   white-space: nowrap;
-}
-
-.widget-inner {
-//  padding-top: 320px;
 }
 
 
@@ -309,11 +263,6 @@ body {
   height: 100%;
   /* Negative indent footer by it's height */
   margin: 0 auto -@sticky-footer-height;
-  // margin: @navbar-height auto -100;
-  // margin-top: @navbar-height;
-  // margin-bottom: -500px;
-  // padding-top: 60px;
-  // margin-top: -60px;
 }
 
 /* Set the fixed height of the footer here */
@@ -338,9 +287,6 @@ body {
 //
 #footer .footer {
 	margin-top: 160px;
-//	margin-bottom: 10px;
-//	border-top: 2px solid black;
-
 	.ligaturesymbols {
 		font-size: 30px;
 		color: black;
@@ -364,43 +310,15 @@ body {
   margin-bottom: 0;
   background-image: url('https://www.docker.io/static/img/website-footer_clean.svg');
   background-repeat: repeat-x;
-//  background-size: 100%;
-//  height: 500px;
   height: @sticky-footer-height;
 }
-//
-//.float-left {
-//  float: left;
-//  margin-right: 15px;
-//  margin-bottom: 15px;
-//}
-//
-//.float-right {
-//  float: right;
-//  margin-left: 15px;
-//  margin-bottom: 15px;
-//}
-//
-
-// .main {
-
-//   // padding-top: 5px;
-//   // padding-left: 30px;
-//   margin-top: 40px;
-//   // min-height: 500px;
-
-// }
 
 .main-row {
-  // .debug;
   margin-top: 40px;
-  // box-spacing: border-box;
-
 }
 
 .main-content {
-  .paper;
-  padding: 18px;
+  padding: 16px 18px inherit;
 }
 
 /* =======================
@@ -429,10 +347,6 @@ body {
 .social .github {
   background-position: -59px 2px;
 }
-
-
-
-
 
 // Styles on the forms
 // ----------------------------------
@@ -500,21 +414,21 @@ div.alert.alert-block {
 
 .bs-docs-sidebar {
   padding-left: 5px;
-  // margin-top: 18px;
-  // width: @sidebar-navigation-width;
   max-width: 100%;
   box-sizing: border-box;
-  // margin-left: 20px;
+  -moz-box-sizing: border-box;
+  margin-top: 18px;
 
   ul {
       list-style: none;
       margin-left: 0px;
   }
 
+  .toctree-l2 > ul {
+    width: 100%;
+  }
+
   ul > li {
-
-    // margin-left: -3px;
-
     &.toctree-l1.has-children {
         background-image: url('../img/menu_arrow_right.gif');
         background-repeat: no-repeat;
@@ -530,15 +444,14 @@ div.alert.alert-block {
     }
 
     & > a {
-      // .debug;
       box-sizing: border-box;
+      -moz-box-sizing: border-box;
       width: 100%;
       display:inline-block;
       padding-top: 8px;
       padding-bottom: 8px;
       padding-left: 35px;
       padding-right: 20px;
-      // margin-right: -100px;
       font-size: @font-size-base;
       border-bottom: @sidebar-navigation-border;
       line-height: 20px;
@@ -567,12 +480,40 @@ div.alert.alert-block {
     }
   }
 
-  ul > li > ul {
-    // padding-left: 20px;
-    content: none;
+  &.toctree-l3 ul {
+    display: inherit; 
+    
+    margin-left: 15px; 
+    font-size: smaller;
   }
 
+  .toctree-l3 a {
+    border: none;
+    font-size: 12px;
+    line-height: 15px;
+  }
+
+  ul > li > ul {
+    display: none;
+  }
+
+  ul > li.current > ul {
+    display: inline-block;
+    padding-left: 0px;
+    width: 100%;
+  }
 }
+
+.toctree-l2 {
+  &.current > a {
+    font-weight: bold;
+  }
+  &.current {
+    border: 1.5px solid #595959;
+    color: #394d54;
+  }
+}
+
 
 /* =====================================
   Styles for the floating version widget
@@ -641,4 +582,33 @@ dt:hover > a.headerlink {
 /* =====================================
   Miscellaneous information
 ====================================== */
+
+.admonition {
+  &.warning, &.note, &.seealso, &.todo {
+    border: 3px solid black;
+    padding: 10px;
+    margin: 5px auto 10px;
+  }
+
+  .admonition-title {
+      font-size: larger;
+  }
+
+  &.warning {
+    border-color: #ac0004;
+  }
+
+  &.note {
+    border-color: #cbc200;
+  }
+
+  &.todo {
+    border-color: orange;
+  }
+
+  &.seealso {
+    border-color: #23cb1f;
+  }
+
+}
 

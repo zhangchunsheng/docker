@@ -7,7 +7,7 @@
 
 
 // Function to make the sticky header possible
-function shiftWindow() {
+function shiftWindow() { 
     scrollBy(0, -70);
     console.log("window shifted")
 }
@@ -23,7 +23,6 @@ function loadShift() {
 
 $(window).load(function() {
     loadShift();
-    console.log("late loadshift");
 });
 
 $(function(){
@@ -35,7 +34,7 @@ $(function(){
     var openmenus = [];
 
     var elements = $('.toctree-l2');
-    for (var i = 0; i < elements.length; i += 1) { var current = $(elements[i]); current.children('ul').hide();}
+    // for (var i = 0; i < elements.length; i += 1) { var current = $(elements[i]); current.children('ul').hide();}
 
 
     // set initial collapsed state
@@ -43,7 +42,7 @@ $(function(){
     for (var i = 0; i < elements.length; i += 1) {
         var current = $(elements[i]);
         if (current.hasClass('current')) {
-
+            current.addClass('open');
             currentlink = current.children('a')[0].href;
             openmenus.push(currentlink);
 
@@ -80,12 +79,11 @@ $(function(){
         }
         else {
             openmenus.push(this.href);
-            console.log(this);
 
             var current = $(this);
 
             setTimeout(function() {
-                $('.sidebar > ul > li').removeClass('current');
+                // $('.sidebar > ul > li').removeClass('current');
                 current.parent().addClass('current').addClass('open'); // toggle before effect
                 current.parent().children('ul').hide();
                 current.parent().children('ul').slideDown(200);
