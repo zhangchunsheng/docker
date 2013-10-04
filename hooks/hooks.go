@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"fmt"
+	"github.com/howeyc/fsnotify"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,18 +19,60 @@ var (
 type Hook struct {
 	root     string
 	prefix   string
-	category string
-	action   string
-	mode     string
-	fileName string
+	Category string
+	Action   string
+	Mode     string
+	FileName string
+}
+
+func ListRegisteredHooks() []*Hook {
+	allHooks := []*Hook{}
+	for _, hooks := range registeredHooks {
+		allHooks = append(allHooks, hooks...)
+	}
+	return allHooks
 }
 
 func (h *Hook) Path() string {
-	return filepath.Join(h.root, h.category, h.action, h.fileName)
+	return filepath.Join(h.root, h.Category, h.Action, h.FileName)
 }
 
 func LoadAll(root, prefix string) error {
-	err := filepath.Walk(root, func(path string, fileInfo os.FileInfo, err error) error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		for {
+			select {
+			case ev := <-watcher.Event:
+				if ev.IsCreate() || ev.IsModify() {
+					if fileInfo, err := os.Stat(ev.Name); err != nil {
+						utils.Debugf("error:", err)
+					} else {
+						if !fileInfo.IsDir() && fileInfo.Mode()&0111 != 0 {
+							p, err := filepath.Rel(root, ev.Name)
+							if err != nil {
+								utils.Debugf("error:", err)
+							} else if err := NewHook(root, p, prefix); err != nil {
+								utils.Debugf("error:", err)
+							}
+						} else if fileInfo.IsDir() {
+							watcher.RemoveWatch(ev.Name)
+							watcher.Watch(ev.Name)
+						}
+					}
+				}
+			case err := <-watcher.Error:
+				utils.Debugf("error:", err)
+			}
+		}
+	}()
+
+
+
+	err = filepath.Walk(root, func(path string, fileInfo os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -41,13 +84,15 @@ func LoadAll(root, prefix string) error {
 			if err := NewHook(root, p, prefix); err != nil {
 				return err
 			}
+		} else if fileInfo.IsDir() && path != root{
+			watcher.Watch(path)
 		}
 		return nil
 	})
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return nil
+	return watcher.Watch(root)
 }
 
 func NewHook(root, name, prefix string) error {
@@ -60,25 +105,33 @@ func NewHook(root, name, prefix string) error {
 	}
 	var action, mode string
 	parts := strings.Split(name, "/")
-	h.category = parts[0]
+	h.Category = parts[0]
 	if len(parts) > 3 {
 		mode = parts[2]
 	}
 	if len(parts) > 2 {
 		action = parts[1]
 	}
-	h.action = action
-	h.mode = mode
-	h.fileName = filepath.Base(name)
+	h.Action = action
+	h.Mode = mode
+	h.FileName = filepath.Base(name)
 
-	hooks, exists := registeredHooks[h.category]
+	hooks, exists := registeredHooks[h.Category]
 	if !exists {
 		hooks = make([]*Hook, 0)
 	}
+
+	//Don't add the same hook twice
+	for _, hook := range hooks {
+		if hook.FileName == h.FileName {
+			return nil
+		}
+	}
+
 	hooks = append(hooks, h)
-	registeredHooks[h.category] = hooks
+	registeredHooks[h.Category] = hooks
 	//TO REMOVE
-	utils.Debugf("Registering a new hook [CATEGORY: %s] [ACTION: %s] [MODE: %s] %s", h.category, action, mode, h.fileName)
+	utils.Debugf("Registering a new hook [CATEGORY: %s] [ACTION: %s] [MODE: %s] %s", h.Category, action, mode, h.FileName)
 	return nil
 }
 
@@ -119,7 +172,7 @@ func Execute(hook, action, mode string, env []string) error {
 
 		Sort(hooks)
 		for _, h := range hooks {
-			if h.action == "" || h.action == action && h.mode == "" || h.mode == mode {
+			if h.Action == "" || h.Action == action && h.Mode == "" || h.Mode == mode {
 				if mode == "pre" {
 					return h.executeWithTimeout(hook, action, mode, env)
 				} else if mode == "post" {

@@ -15,7 +15,7 @@ func (s *sorter) Swap(i, j int) {
 }
 
 func (s *sorter) Less(i, j int) bool {
-	return s.hooks[i].fileName > s.hooks[j].fileName
+	return s.hooks[i].FileName > s.hooks[j].FileName
 }
 
 func Sort(h []*Hook) {

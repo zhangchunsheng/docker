@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/dotcloud/docker/auth"
+	"github.com/dotcloud/docker/hooks"
 	"github.com/dotcloud/docker/utils"
 	"github.com/gorilla/mux"
 	"io"
@@ -181,6 +182,10 @@ func getImagesViz(srv *Server, version float64, w http.ResponseWriter, r *http.R
 
 func getInfo(srv *Server, version float64, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
 	return writeJSON(w, http.StatusOK, srv.DockerInfo())
+}
+
+func getHooks(srv *Server, version float64, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
+	return writeJSON(w, http.StatusOK, hooks.ListRegisteredHooks())
 }
 
 func getEvents(srv *Server, version float64, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
@@ -996,6 +1001,7 @@ func createRouter(srv *Server, logging bool) (*mux.Router, error) {
 		"GET": {
 			"/events":                         getEvents,
 			"/info":                           getInfo,
+			"/hooks":                          getHooks,
 			"/version":                        getVersion,
 			"/images/json":                    getImagesJSON,
 			"/images/viz":                     getImagesViz,

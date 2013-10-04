@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/dotcloud/docker/auth"
+	"github.com/dotcloud/docker/hooks"
 	"github.com/dotcloud/docker/registry"
 	"github.com/dotcloud/docker/term"
 	"github.com/dotcloud/docker/utils"
@@ -90,6 +91,7 @@ func (cli *DockerCli) CmdHelp(args ...string) error {
 		{"events", "Get real time events from the server"},
 		{"export", "Stream the contents of a container as a tar archive"},
 		{"history", "Show the history of an image"},
+		{"hooks", "List all active hooks on your system"},
 		{"images", "List images"},
 		{"import", "Create a new filesystem image from the contents of a tarball"},
 		{"info", "Display system-wide information"},
@@ -735,6 +737,37 @@ func (cli *DockerCli) CmdHistory(args ...string) error {
 	}
 	w.Flush()
 	return nil
+}
+
+func (cli *DockerCli) CmdHooks(args ...string) error {
+	cmd := Subcmd("hooks", "", "List all docker hooks on your system")
+	if err := cmd.Parse(args); err != nil {
+		return nil
+	}
+	if cmd.NArg() > 0 {
+		cmd.Usage()
+		return nil
+	}
+
+	body, _, err := cli.call("GET", "/hooks", nil)
+	if err != nil {
+		return err
+	}
+
+	var outs []hooks.Hook
+	err = json.Unmarshal(body, &outs)
+	if err != nil {
+		return err
+	}
+	w := tabwriter.NewWriter(cli.out, 20, 1, 3, ' ', 0)
+	fmt.Fprintln(w, "NAME\tCATEGORY\tACTION\tMODE")
+
+	for _, out := range outs {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", out.FileName, out.Category, out.Action, out.Mode)
+	}
+	w.Flush()
+	return nil
+
 }
 
 func (cli *DockerCli) CmdRm(args ...string) error {
