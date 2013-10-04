@@ -85,7 +85,7 @@ func NewHook(root, name, prefix string) error {
 func (h *Hook) executeWithTimeout(hook, action, mode string, env []string) error {
 	c := make(chan error, 1)
 
-	var cmd exec.Cmd
+	var cmd *exec.Cmd
 	go func() {
 		cmd = exec.Command(h.Path())
 		env = append(env, fmt.Sprintf("%s_ACTION=%s_%s", h.prefix, hook, action))

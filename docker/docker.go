@@ -31,7 +31,7 @@ func main() {
 	flVersion := flag.Bool("v", false, "Print version information and quit")
 	flDaemon := flag.Bool("d", false, "Daemon mode")
 	flDebug := flag.Bool("D", false, "Debug mode")
-	flAutoRestart := flag.Bool("r", false, "Restart previously running containers")
+	flAutoRestart := flag.Bool("r", true, "Restart previously running containers")
 	bridgeName := flag.String("b", "", "Attach containers to a pre-existing network bridge. Use 'none' to disable container networking")
 	pidfile := flag.String("p", "/var/run/docker.pid", "File containing process PID")
 	flGraphPath := flag.String("g", "/var/lib/docker", "Path to graph storage base dir.")
@@ -77,6 +77,9 @@ func main() {
 		}
 		protoAddrParts := strings.SplitN(flHosts[0], "://", 2)
 		if err := docker.ParseCommands(protoAddrParts[0], protoAddrParts[1], flag.Args()...); err != nil {
+			if sterr, ok := err.(*utils.StatusError); ok {
+				os.Exit(sterr.Status)
+			}
 			log.Fatal(err)
 			os.Exit(-1)
 		}

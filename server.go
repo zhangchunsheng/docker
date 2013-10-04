@@ -140,8 +140,7 @@ func (srv *Server) ImageInsert(name, url, path string, out io.Writer, sf *utils.
 		return "", err
 	}
 
-	b := NewBuilder(srv.runtime)
-	c, err := b.Create(config)
+	c, err := srv.runtime.Create(config)
 	if err != nil {
 		return "", err
 	}
@@ -150,7 +149,7 @@ func (srv *Server) ImageInsert(name, url, path string, out io.Writer, sf *utils.
 		return "", err
 	}
 	// FIXME: Handle custom repo, tag comment, author
-	img, err = b.Commit(c, "", "", img.Comment, img.Author, nil)
+	img, err = srv.runtime.Commit(c, "", "", img.Comment, img.Author, nil)
 	if err != nil {
 		return "", err
 	}
@@ -159,7 +158,7 @@ func (srv *Server) ImageInsert(name, url, path string, out io.Writer, sf *utils.
 }
 
 func (srv *Server) ImagesViz(out io.Writer) error {
-	images, _ := srv.runtime.graph.All()
+	images, _ := srv.runtime.graph.Map()
 	if images == nil {
 		return nil
 	}
@@ -211,8 +210,10 @@ func (srv *Server) Images(all bool, filter string) ([]APIImages, error) {
 	}
 	outs := []APIImages{} //produce [] when empty instead of 'null'
 	for name, repository := range srv.runtime.repositories.Repositories {
-		if filter != "" && name != filter {
-			continue
+		if filter != "" {
+			if match, _ := path.Match(filter, name); !match {
+				continue
+			}
 		}
 		for tag, id := range repository {
 			var out APIImages
@@ -248,7 +249,7 @@ func (srv *Server) Images(all bool, filter string) ([]APIImages, error) {
 }
 
 func (srv *Server) DockerInfo() *APIInfo {
-	images, _ := srv.runtime.graph.All()
+	images, _ := srv.runtime.graph.Map()
 	var imgcount int
 	if images == nil {
 		imgcount = 0
@@ -387,7 +388,7 @@ func (srv *Server) Containers(all, size bool, n int, since, before string) []API
 		c.Command = fmt.Sprintf("%s %s", container.Path, strings.Join(container.Args, " "))
 		c.Created = container.Created.Unix()
 		c.Status = container.State.String()
-		c.Ports = container.NetworkSettings.PortMappingHuman()
+		c.Ports = container.NetworkSettings.PortMappingAPI()
 		if size {
 			c.SizeRw, c.SizeRootFs = container.GetSize()
 		}
@@ -401,7 +402,7 @@ func (srv *Server) ContainerCommit(name, repo, tag, author, comment string, conf
 	if container == nil {
 		return "", fmt.Errorf("No such container: %s", name)
 	}
-	img, err := NewBuilder(srv.runtime).Commit(container, repo, tag, comment, author, config)
+	img, err := srv.runtime.Commit(container, repo, tag, comment, author, config)
 	if err != nil {
 		return "", err
 	}
@@ -656,6 +657,9 @@ func (srv *Server) ImagePull(localName string, tag string, out io.Writer, sf *ut
 
 	out = utils.NewWriteFlusher(out)
 	err = srv.pullRepository(r, out, localName, remoteName, tag, endpoint, sf, parallel)
+	if err == registry.ErrLoginRequired {
+		return err
+	}
 	if err != nil {
 		if err := srv.pullImage(r, out, remoteName, endpoint, nil, sf); err != nil {
 			return err
@@ -742,10 +746,24 @@ func (srv *Server) pushRepository(r *registry.Registry, out io.Writer, localName
 		for _, round := range imgList {
 			// FIXME: This section can be parallelized
 			for _, elem := range round {
+				var pushTags func() error
+				pushTags = func() error {
+					out.Write(sf.FormatStatus("", "Pushing tags for rev [%s] on {%s}", elem.ID, ep+"repositories/"+remoteName+"/tags/"+elem.Tag))
+					if err := r.PushRegistryTag(remoteName, elem.ID, elem.Tag, ep, repoData.Tokens); err != nil {
+						return err
+					}
+					return nil
+				}
 				if _, exists := repoData.ImgList[elem.ID]; exists {
+					if err := pushTags(); err != nil {
+						return err
+					}
 					out.Write(sf.FormatStatus("", "Image %s already pushed, skipping", elem.ID))
 					continue
 				} else if r.LookupRemoteImage(elem.ID, ep, repoData.Tokens) {
+					if err := pushTags(); err != nil {
+						return err
+					}
 					out.Write(sf.FormatStatus("", "Image %s already pushed, skipping", elem.ID))
 					continue
 				}
@@ -755,8 +773,7 @@ func (srv *Server) pushRepository(r *registry.Registry, out io.Writer, localName
 				} else {
 					elem.Checksum = checksum
 				}
-				out.Write(sf.FormatStatus("", "Pushing tags for rev [%s] on {%s}", elem.ID, ep+"repositories/"+remoteName+"/tags/"+elem.Tag))
-				if err := r.PushRegistryTag(remoteName, elem.ID, elem.Tag, ep, repoData.Tokens); err != nil {
+				if err := pushTags(); err != nil {
 					return err
 				}
 			}
@@ -905,8 +922,7 @@ func (srv *Server) ContainerCreate(config *Config) (string, error) {
 	if config.Memory > 0 && !srv.runtime.capabilities.SwapLimit {
 		config.MemorySwap = -1
 	}
-	b := NewBuilder(srv.runtime)
-	container, err := b.Create(config)
+	container, err := srv.runtime.Create(config)
 	if err != nil {
 		if srv.runtime.graph.IsNotExist(err) {
 
@@ -1097,7 +1113,7 @@ func (srv *Server) ImageDelete(name string, autoPrune bool) ([]APIRmi, error) {
 func (srv *Server) ImageGetCached(imgID string, config *Config) (*Image, error) {
 
 	// Retrieve all images
-	images, err := srv.runtime.graph.All()
+	images, err := srv.runtime.graph.Map()
 	if err != nil {
 		return nil, err
 	}
@@ -1162,11 +1178,12 @@ func (srv *Server) ContainerResize(name string, h, w int) error {
 	return fmt.Errorf("No such container: %s", name)
 }
 
-func (srv *Server) ContainerAttach(name string, logs, stream, stdin, stdout, stderr bool, in io.ReadCloser, out io.Writer) error {
+func (srv *Server) ContainerAttach(name string, logs, stream, stdin, stdout, stderr bool, inStream io.ReadCloser, outStream, errStream io.Writer) error {
 	container := srv.runtime.Get(name)
 	if container == nil {
 		return fmt.Errorf("No such container: %s", name)
 	}
+
 	//logs
 	if logs {
 		cLog, err := container.ReadLog("json")
@@ -1177,7 +1194,7 @@ func (srv *Server) ContainerAttach(name string, logs, stream, stdin, stdout, std
 				cLog, err := container.ReadLog("stdout")
 				if err != nil {
 					utils.Debugf("Error reading logs (stdout): %s", err)
-				} else if _, err := io.Copy(out, cLog); err != nil {
+				} else if _, err := io.Copy(outStream, cLog); err != nil {
 					utils.Debugf("Error streaming logs (stdout): %s", err)
 				}
 			}
@@ -1185,7 +1202,7 @@ func (srv *Server) ContainerAttach(name string, logs, stream, stdin, stdout, std
 				cLog, err := container.ReadLog("stderr")
 				if err != nil {
 					utils.Debugf("Error reading logs (stderr): %s", err)
-				} else if _, err := io.Copy(out, cLog); err != nil {
+				} else if _, err := io.Copy(errStream, cLog); err != nil {
 					utils.Debugf("Error streaming logs (stderr): %s", err)
 				}
 			}
@@ -1194,15 +1211,19 @@ func (srv *Server) ContainerAttach(name string, logs, stream, stdin, stdout, std
 		} else {
 			dec := json.NewDecoder(cLog)
 			for {
-				var l utils.JSONLog
-				if err := dec.Decode(&l); err == io.EOF {
+				l := &utils.JSONLog{}
+
+				if err := dec.Decode(l); err == io.EOF {
 					break
 				} else if err != nil {
 					utils.Debugf("Error streaming logs: %s", err)
 					break
 				}
-				if (l.Stream == "stdout" && stdout) || (l.Stream == "stderr" && stderr) {
-					fmt.Fprintf(out, "%s", l.Log)
+				if l.Stream == "stdout" && stdout {
+					fmt.Fprintf(outStream, "%s", l.Log)
+				}
+				if l.Stream == "stderr" && stderr {
+					fmt.Fprintf(errStream, "%s", l.Log)
 				}
 			}
 		}
@@ -1225,16 +1246,16 @@ func (srv *Server) ContainerAttach(name string, logs, stream, stdin, stdout, std
 			go func() {
 				defer w.Close()
 				defer utils.Debugf("Closing buffered stdin pipe")
-				io.Copy(w, in)
+				io.Copy(w, inStream)
 			}()
 			cStdin = r
-			cStdinCloser = in
+			cStdinCloser = inStream
 		}
 		if stdout {
-			cStdout = out
+			cStdout = outStream
 		}
 		if stderr {
-			cStderr = out
+			cStderr = errStream
 		}
 
 		<-container.Attach(cStdin, cStdinCloser, cStdout, cStderr)

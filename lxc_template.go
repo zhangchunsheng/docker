@@ -30,6 +30,12 @@ lxc.network.ipv4 = {{.NetworkSettings.IPAddress}}/{{.NetworkSettings.IPPrefixLen
 {{$ROOTFS := .RootfsPath}}
 lxc.rootfs = {{$ROOTFS}}
 
+{{if and .HostnamePath .HostsPath}}
+# enable domain name support
+lxc.mount.entry = {{.HostnamePath}} {{$ROOTFS}}/etc/hostname none bind,ro 0 0
+lxc.mount.entry = {{.HostsPath}} {{$ROOTFS}}/etc/hosts none bind,ro 0 0
+{{end}}
+
 # use a dedicated pts for the container (and limit the number of pseudo terminal
 # available)
 lxc.pts = 1024
@@ -105,7 +111,7 @@ lxc.mount.entry = {{$realPath}} {{$ROOTFS}}/{{$virtualPath}} none bind,{{ if ind
 #  (Note: 'lxc.cap.keep' is coming soon and should replace this under the
 #         security principle 'deny all unless explicitly permitted', see
 #         http://sourceforge.net/mailarchive/message.php?msg_id=31054627 )
-lxc.cap.drop = audit_control audit_write mac_admin mac_override mknod setfcap setpcap sys_admin sys_boot sys_module sys_nice sys_pacct sys_rawio sys_resource sys_time sys_tty_config
+lxc.cap.drop = audit_control audit_write mac_admin mac_override mknod setpcap sys_admin sys_boot sys_module sys_nice sys_pacct sys_rawio sys_resource sys_time sys_tty_config
 {{end}}
 
 # limits
