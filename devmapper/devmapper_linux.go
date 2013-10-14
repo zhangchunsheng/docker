@@ -149,7 +149,7 @@ import (
 	"unsafe"
 )
 
-type DevmapperLogger interface  {
+type DevmapperLogger interface {
 	log(level int, file string, line int, dmError int, message string)
 }
 
@@ -376,8 +376,6 @@ func UdevWait(cookie uint32) error {
 func LogInitVerbose(level int) {
 	C.dm_log_init_verbose(C.int(level))
 }
-
-var dmLogger DevmapperLogger = nil
 
 func logInit(logger DevmapperLogger) {
 	dmLogger = logger

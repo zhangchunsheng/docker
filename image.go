@@ -151,13 +151,15 @@ func (image *Image) TarLayer(compression Compression) (Archive, error) {
 type TimeUpdate struct {
 	path string
 	time []syscall.Timeval
-	mode uint32
+	mode os.FileMode
 }
 
 func (image *Image) applyLayer(layer, target string) error {
 	var updateTimes []TimeUpdate
+
 	oldmask := syscall.Umask(0)
 	defer syscall.Umask(oldmask)
+
 	err := filepath.Walk(layer, func(srcPath string, f os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -168,8 +170,7 @@ func (image *Image) applyLayer(layer, target string) error {
 			return nil
 		}
 
-		var srcStat syscall.Stat_t
-		err = syscall.Lstat(srcPath, &srcStat)
+		srcStat, err := os.Lstat(srcPath)
 		if err != nil {
 			return err
 		}
@@ -202,69 +203,73 @@ func (image *Image) applyLayer(layer, target string) error {
 				return err
 			}
 		} else {
-			var targetStat = &syscall.Stat_t{}
-			err := syscall.Lstat(targetPath, targetStat)
+			exists := true
+			targetFi, err := os.Lstat(targetPath)
 			if err != nil {
 				if !os.IsNotExist(err) {
 					return err
 				}
-				targetStat = nil
+				exists = false
 			}
-
-			if targetStat != nil && !(targetStat.Mode&syscall.S_IFDIR == syscall.S_IFDIR && srcStat.Mode&syscall.S_IFDIR == syscall.S_IFDIR) {
+			if exists &&
+				!(targetFi.Mode()&syscall.S_IFDIR == syscall.S_IFDIR &&
+					srcStat.Mode()&syscall.S_IFDIR == syscall.S_IFDIR) {
 				// Unless both src and dest are directories we remove the target and recreate it
 				// This is a bit wasteful in the case of only a mode change, but that is unlikely
 				// to matter much
-				err = os.RemoveAll(targetPath)
-				if err != nil {
+
+				if err := os.RemoveAll(targetPath); err != nil {
 					return err
 				}
-				targetStat = nil
+				exists = false
 			}
 
 			if f.IsDir() {
 				// Source is a directory
-				if targetStat == nil {
-					err = syscall.Mkdir(targetPath, srcStat.Mode&07777)
-					if err != nil {
+				if exists {
+					if err := os.Mkdir(targetPath, os.FileMode(srcStat.Mode()&07777)); err != nil {
 						return err
 					}
 				}
-			} else if srcStat.Mode&syscall.S_IFLNK == syscall.S_IFLNK {
+			} else if srcStat.Mode()&syscall.S_IFLNK == syscall.S_IFLNK {
 				// Source is symlink
 				link, err := os.Readlink(srcPath)
 				if err != nil {
 					return err
 				}
 
-				err = os.Symlink(link, targetPath)
+				if err := os.Symlink(link, targetPath); err != nil {
+					return err
+				}
+			} else if srcStat.Mode()&syscall.S_IFBLK == syscall.S_IFBLK ||
+				srcStat.Mode()&syscall.S_IFCHR == syscall.S_IFCHR ||
+				srcStat.Mode()&syscall.S_IFIFO == syscall.S_IFIFO ||
+				srcStat.Mode()&syscall.S_IFSOCK == syscall.S_IFSOCK {
+
+				rdev, err := getRdev(srcStat)
 				if err != nil {
 					return err
 				}
-			} else if srcStat.Mode&syscall.S_IFBLK == syscall.S_IFBLK ||
-				srcStat.Mode&syscall.S_IFCHR == syscall.S_IFCHR ||
-				srcStat.Mode&syscall.S_IFIFO == syscall.S_IFIFO ||
-				srcStat.Mode&syscall.S_IFSOCK == syscall.S_IFSOCK {
+
 				// Source is special file
-				err = syscall.Mknod(targetPath, srcStat.Mode, int(srcStat.Rdev))
-				if err != nil {
+				if err := syscall.Mknod(targetPath, uint32(srcStat.Mode()), rdev); err != nil {
 					return err
 				}
-			} else if srcStat.Mode&syscall.S_IFREG == syscall.S_IFREG {
+			} else if srcStat.Mode()&syscall.S_IFREG == syscall.S_IFREG {
 				// Source is regular file
-				fd, err := syscall.Open(targetPath, syscall.O_CREAT|syscall.O_WRONLY, srcStat.Mode&07777)
+
+				dstFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY, os.FileMode(srcStat.Mode()&07777))
 				if err != nil {
 					return err
 				}
-				dstFile := os.NewFile(uintptr(fd), targetPath)
 				srcFile, err := os.Open(srcPath)
 				if err != nil {
 					_ = dstFile.Close()
 					return err
 				}
 				err = CopyFile(dstFile, srcFile)
-				_ = dstFile.Close()
-				_ = srcFile.Close()
+				dstFile.Close()
+				srcFile.Close()
 				if err != nil {
 					return err
 				}
@@ -272,27 +277,42 @@ func (image *Image) applyLayer(layer, target string) error {
 				return fmt.Errorf("Unknown type for file %s", srcPath)
 			}
 
-			err = syscall.Lchown(targetPath, int(srcStat.Uid), int(srcStat.Gid))
+			uid, err := getUid(srcStat)
+			if err != nil {
+				return err
+			}
+			gid, err := getGid(srcStat)
 			if err != nil {
 				return err
 			}
 
-			if srcStat.Mode&syscall.S_IFLNK != syscall.S_IFLNK {
-				err = syscall.Chmod(targetPath, srcStat.Mode&07777)
-				if err != nil {
+			if err := os.Lchown(targetPath, uid, gid); err != nil {
+				return err
+			}
+
+			if srcStat.Mode()&syscall.S_IFLNK != syscall.S_IFLNK {
+				if err := os.Chmod(targetPath, os.FileMode(srcStat.Mode()&07777)); err != nil {
 					return err
 				}
 			}
 
+			aTime, err := getAtime(srcStat)
+			if err != nil {
+				return err
+			}
+			mTime, err := getMtime(srcStat)
+			if err != nil {
+				return err
+			}
 			ts := []syscall.Timeval{
-				syscall.NsecToTimeval(srcStat.Atim.Nano()),
-				syscall.NsecToTimeval(srcStat.Mtim.Nano()),
+				syscall.NsecToTimeval(aTime.Nanoseconds()),
+				syscall.NsecToTimeval(mTime.Nanoseconds()),
 			}
 
 			u := TimeUpdate{
 				path: targetPath,
 				time: ts,
-				mode: srcStat.Mode,
+				mode: srcStat.Mode(),
 			}
 
 			// Delay time updates until all other changes done, or it is
@@ -310,22 +330,20 @@ func (image *Image) applyLayer(layer, target string) error {
 		update := updateTimes[i]
 
 		O_PATH := 010000000 // Not in syscall yet
-		var err error
+
 		if update.mode&syscall.S_IFLNK == syscall.S_IFLNK {
 			// Update time on the symlink via O_PATH + futimes(), if supported by the kernel
-
-			fd, err := syscall.Open(update.path, syscall.O_RDWR|O_PATH|syscall.O_NOFOLLOW, 0600)
+			file, err := os.OpenFile(update.path, os.O_RDWR|O_PATH|syscall.O_NOFOLLOW, 0600)
 			if err == syscall.EISDIR || err == syscall.ELOOP {
 				// O_PATH not supported by kernel, nothing to do, ignore
 			} else if err != nil {
 				return err
 			} else {
-				syscall.Futimes(fd, update.time)
-				syscall.Close(fd)
+				syscall.Futimes(int(file.Fd()), update.time)
+				file.Close()
 			}
 		} else {
-			err = syscall.Utimes(update.path, update.time)
-			if err != nil {
+			if err := syscall.Utimes(update.path, update.time); err != nil {
 				return err
 			}
 		}
