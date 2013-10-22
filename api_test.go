@@ -473,22 +473,12 @@ func TestGetContainersChanges(t *testing.T) {
 }
 
 func TestGetContainersTop(t *testing.T) {
-	t.Skip("Fixme. Skipping test for now. Reported error when testing using dind: 'api_test.go:527: Expected 2 processes, found 0.'")
 	runtime := mkRuntime(t)
 	defer nuke(runtime)
 
 	srv := &Server{runtime: runtime}
 
-	container, err := runtime.Create(
-		&Config{
-			Image:     GetTestImage(runtime).ID,
-			Cmd:       []string{"/bin/sh", "-c", "cat"},
-			OpenStdin: true,
-		},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	container, _, _ := mkContainer(runtime, []string{"-i", "_", "/bin/sh", "-c", "cat"}, t)
 	defer runtime.Destroy(container)
 	defer func() {
 		// Make sure the process dies before destroying runtime
