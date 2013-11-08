@@ -909,12 +909,18 @@ func (cli *DockerCli) CmdImport(args ...string) error {
 	if err := cmd.Parse(args); err != nil {
 		return nil
 	}
-	if cmd.NArg() < 1 {
+	if cmd.NArg() == 0 || cmd.NArg() > 3 {
 		cmd.Usage()
 		return nil
 	}
 	src := cmd.Arg(0)
 	repository, tag := utils.ParseRepositoryTag(cmd.Arg(1))
+
+	if cmd.NArg() == 3 {
+		tag = cmd.Arg(2)
+		fmt.Fprintf(cli.out, "WARNING: This syntax will soon be deprecated, please use \"import URL|- %s:%s\" next time\n", repository, tag)
+	}
+
 	v := url.Values{}
 	v.Set("repo", repository)
 	v.Set("tag", tag)
@@ -1349,12 +1355,18 @@ func (cli *DockerCli) CmdCommit(args ...string) error {
 	if err := cmd.Parse(args); err != nil {
 		return nil
 	}
+
+	if cmd.NArg() == 0 || cmd.NArg() > 3 {
+		cmd.Usage()
+		return nil
+	}
+
 	name := cmd.Arg(0)
 	repository, tag := utils.ParseRepositoryTag(cmd.Arg(1))
 
-	if name == "" {
-		cmd.Usage()
-		return nil
+	if cmd.NArg() == 3 {
+		tag = cmd.Arg(2)
+		fmt.Fprintf(cli.out, "WARNING: This syntax will soon be deprecated, please use \"docker commit [OPTIONS] %s %s:%s\" next time\n", name, repository, tag)
 	}
 
 	v := url.Values{}
@@ -1658,6 +1670,11 @@ func (cli *DockerCli) CmdTag(args ...string) error {
 
 	v := url.Values{}
 	repository, tag := utils.ParseRepositoryTag(cmd.Arg(1))
+
+	if cmd.NArg() == 3 {
+		tag = cmd.Arg(2)
+		fmt.Fprintf(cli.out, "WARNING: This syntax will soon be deprecated, please use \"docker tag [OPTIONS] %s %s:%s\" next time\n", cmd.Arg(0), repository, tag)
+	}
 
 	v.Set("repo", repository)
 	v.Set("tag", tag)
