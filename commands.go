@@ -21,6 +21,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"reflect"
@@ -186,13 +187,31 @@ func (cli *DockerCli) CmdBuild(args ...string) error {
 			return err
 		}
 		context, err = MkBuildContext(string(dockerfile), nil)
-	} else if utils.IsURL(cmd.Arg(0)) || utils.IsGIT(cmd.Arg(0)) {
+	} else if utils.IsURL(cmd.Arg(0)) {
 		isRemote = true
 	} else {
-		if _, err := os.Stat(cmd.Arg(0)); err != nil {
+		root := cmd.Arg(0)
+		if utils.IsGIT(root) {
+			remoteURL := cmd.Arg(0)
+			if !strings.HasPrefix(remoteURL, "git://") {
+				remoteURL = "https://" + remoteURL
+			}
+
+			root, err = ioutil.TempDir("", "docker-build-git")
+			if err != nil {
+				return err
+			}
+			defer os.RemoveAll(root)
+
+			if output, err := exec.Command("git", "clone", remoteURL, root).CombinedOutput(); err != nil {
+				return fmt.Errorf("Error trying to use git: %s (%s)", err, output)
+			}
+
+		}
+		if _, err := os.Stat(root); err != nil {
 			return err
 		}
-		context, err = archive.Tar(cmd.Arg(0), archive.Uncompressed)
+		context, err = archive.Tar(root, archive.Uncompressed)
 	}
 	var body io.Reader
 	// Setup an upload progress bar
