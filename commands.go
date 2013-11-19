@@ -193,7 +193,7 @@ func (cli *DockerCli) CmdBuild(args ...string) error {
 		root := cmd.Arg(0)
 		if utils.IsGIT(root) {
 			remoteURL := cmd.Arg(0)
-			if !strings.HasPrefix(remoteURL, "git://") {
+			if !strings.HasPrefix(remoteURL, "git://") && !strings.HasPrefix(remoteURL, "git@") {
 				remoteURL = "https://" + remoteURL
 			}
 
