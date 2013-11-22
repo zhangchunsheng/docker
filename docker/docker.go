@@ -37,7 +37,8 @@ func main() {
 		flDefaultIp          = flag.String("ip", "0.0.0.0", "Default ip address to use when binding a containers ports")
 		flInterContainerComm = flag.Bool("icc", true, "Enable inter-container communication")
 
-	flHosts := docker.ListOpts{}
+		flHosts = docker.NewListOpts(docker.ValidateHost)
+	)
 	flHosts.Set(fmt.Sprintf("unix://%s", docker.DEFAULTUNIXSOCKET))
 	flag.Var(&flHosts, "H", "tcp://host:port to bind/connect to or unix://path/to/socket to use")
 
@@ -50,21 +51,13 @@ func main() {
 	if flHosts.Len() > 1 {
 		flHosts.Delete(flHosts.GetAll()[0]) //trick to display a nice default value in the usage
 	}
-	for _, flHost := range flHosts.GetAll() {
-		host, err := utils.ParseHost(docker.DEFAULTHTTPHOST, docker.DEFAULTHTTPPORT, flHost)
-		if err == nil {
-			flHosts.Delete(flHost)
-			flHosts.Set(host)
-		} else {
-			log.Fatal(err)
-		}
-	}
-
 	if *flDebug {
 		os.Setenv("DEBUG", "1")
 	}
+
 	docker.GITCOMMIT = GITCOMMIT
 	docker.VERSION = VERSION
+
 	if *flDaemon {
 		if flag.NArg() != 0 {
 			flag.Usage()

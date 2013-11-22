@@ -2,6 +2,7 @@ package docker
 
 import (
 	"fmt"
+	"github.com/dotcloud/docker/utils"
 	"path/filepath"
 	"strings"
 )
@@ -13,7 +14,9 @@ type ListOpts struct {
 }
 
 func NewListOpts(validator ValidatorFctType) ListOpts {
-	return ListOpts{}
+	return ListOpts{
+		validator: validator,
+	}
 }
 
 func (opts *ListOpts) String() string {
@@ -24,9 +27,11 @@ func (opts *ListOpts) String() string {
 // internal slice.
 func (opts *ListOpts) Set(value string) error {
 	if opts.validator != nil {
-		if err := opts.validator(value); err != nil {
+		v, err := opts.validator(value)
+		if err != nil {
 			return err
 		}
+		value = v
 	}
 	opts.values = append(opts.values, value)
 	return nil
@@ -75,23 +80,23 @@ func (opts *ListOpts) Len() int {
 }
 
 // Validators
-type ValidatorFctType func(val string) error
+type ValidatorFctType func(val string) (string, error)
 
-func validateAttach(val string) error {
+func ValidateAttach(val string) (string, error) {
 	if val != "stdin" && val != "stdout" && val != "stderr" {
-		return fmt.Errorf("Unsupported stream name: %s", val)
+		return val, fmt.Errorf("Unsupported stream name: %s", val)
 	}
-	return nil
+	return val, nil
 }
 
-func validateLink(val string) error {
+func ValidateLink(val string) (string, error) {
 	if _, err := parseLink(val); err != nil {
-		return err
+		return val, err
 	}
-	return nil
+	return val, nil
 }
 
-func validatePath(val string) error {
+func ValidatePath(val string) (string, error) {
 	var containerPath string
 
 	splited := strings.SplitN(val, ":", 2)
@@ -104,7 +109,15 @@ func validatePath(val string) error {
 	}
 
 	if !filepath.IsAbs(containerPath) {
-		return fmt.Errorf("%s is not an absolute path", containerPath)
+		return val, fmt.Errorf("%s is not an absolute path", containerPath)
 	}
-	return nil
+	return val, nil
+}
+
+func ValidateHost(val string) (string, error) {
+	host, err := utils.ParseHost(DEFAULTHTTPHOST, DEFAULTHTTPPORT, val)
+	if err != nil {
+		return val, err
+	}
+	return host, nil
 }

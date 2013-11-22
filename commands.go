@@ -1672,9 +1672,9 @@ func ParseRun(args []string, capabilities *Capabilities) (*Config, *HostConfig, 
 
 func parseRun(cmd *flag.FlagSet, args []string, capabilities *Capabilities) (*Config, *HostConfig, *flag.FlagSet, error) {
 	var (
-		flAttach  = NewListOpts(validateAttach)
-		flVolumes = NewListOpts(validatePath)
-		flLinks   = NewListOpts(validateLink)
+		flAttach  = NewListOpts(ValidateAttach)
+		flVolumes = NewListOpts(ValidatePath)
+		flLinks   = NewListOpts(ValidateLink)
 
 		flPublish     ListOpts
 		flExpose      ListOpts
