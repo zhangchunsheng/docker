@@ -23,6 +23,7 @@ func main() {
 		sysinit.SysInit()
 		return
 	}
+
 	var (
 		flVersion            = flag.Bool("v", false, "Print version information and quit")
 		flDaemon             = flag.Bool("d", false, "Daemon mode")
@@ -39,7 +40,7 @@ func main() {
 
 		flHosts = docker.NewListOpts(docker.ValidateHost)
 	)
-	flHosts.Set(fmt.Sprintf("unix://%s", docker.DEFAULTUNIXSOCKET))
+
 	flag.Var(&flHosts, "H", "tcp://host:port to bind/connect to or unix://path/to/socket to use")
 
 	flag.Parse()
@@ -48,8 +49,9 @@ func main() {
 		showVersion()
 		return
 	}
-	if flHosts.Len() > 1 {
-		flHosts.Delete(flHosts.GetAll()[0]) //trick to display a nice default value in the usage
+	if flHosts.Len() == 0 {
+		// If we do not have a host, default to unix socket
+		flHosts.Set(fmt.Sprintf("unix://%s", docker.DEFAULTUNIXSOCKET))
 	}
 	if *flDebug {
 		os.Setenv("DEBUG", "1")
