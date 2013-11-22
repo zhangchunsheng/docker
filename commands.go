@@ -1675,10 +1675,10 @@ func parseRun(cmd *flag.FlagSet, args []string, capabilities *Capabilities) (*Co
 		flAttach  = NewListOpts(ValidateAttach)
 		flVolumes = NewListOpts(ValidatePath)
 		flLinks   = NewListOpts(ValidateLink)
+		flEnv     = NewListOpts(ValidateEnv)
 
 		flPublish     ListOpts
 		flExpose      ListOpts
-		flEnv         ListOpts
 		flDns         ListOpts
 		flVolumesFrom ListOpts
 		flLxcOpts     ListOpts
@@ -1742,17 +1742,6 @@ func parseRun(cmd *flag.FlagSet, args []string, capabilities *Capabilities) (*Co
 			if *flStdin {
 				flAttach.Set("stdin")
 			}
-		}
-	}
-
-	var envs []string
-	for _, env := range flEnv.GetAll() {
-		arr := strings.Split(env, "=")
-		if len(arr) > 1 {
-			envs = append(envs, env)
-		} else {
-			v := os.Getenv(env)
-			envs = append(envs, env+"="+v)
 		}
 	}
 
@@ -1841,7 +1830,7 @@ func parseRun(cmd *flag.FlagSet, args []string, capabilities *Capabilities) (*Co
 		AttachStdin:     flAttach.Get("stdin"),
 		AttachStdout:    flAttach.Get("stdout"),
 		AttachStderr:    flAttach.Get("stderr"),
-		Env:             envs,
+		Env:             flEnv.GetAll(),
 		Cmd:             runCmd,
 		Dns:             flDns.GetAll(),
 		Image:           image,

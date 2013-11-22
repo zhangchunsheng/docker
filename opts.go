@@ -3,6 +3,7 @@ package docker
 import (
 	"fmt"
 	"github.com/dotcloud/docker/utils"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -112,6 +113,14 @@ func ValidatePath(val string) (string, error) {
 		return val, fmt.Errorf("%s is not an absolute path", containerPath)
 	}
 	return val, nil
+}
+
+func ValidateEnv(val string) (string, error) {
+	arr := strings.Split(val, "=")
+	if len(arr) > 1 {
+		return val, nil
+	}
+	return fmt.Sprintf("%s=%s", val, os.Getenv(val)), nil
 }
 
 func ValidateHost(val string) (string, error) {
