@@ -23,7 +23,7 @@ func (s *State) String() string {
 		if s.Ghost {
 			return fmt.Sprintf("Ghost")
 		}
-		return fmt.Sprintf("Up %s", utils.HumanDuration(time.Now().Sub(s.StartedAt)))
+		return fmt.Sprintf("Up %s", utils.HumanDuration(time.Now().UTC().Sub(s.StartedAt)))
 	}
 	return fmt.Sprintf("Exit %d", s.ExitCode)
 }
@@ -33,12 +33,12 @@ func (s *State) setRunning(pid int) {
 	s.Ghost = false
 	s.ExitCode = 0
 	s.Pid = pid
-	s.StartedAt = time.Now()
+	s.StartedAt = time.Now().UTC()
 }
 
 func (s *State) setStopped(exitCode int) {
 	s.Running = false
 	s.Pid = 0
-	s.FinishedAt = time.Now()
+	s.FinishedAt = time.Now().UTC()
 	s.ExitCode = exitCode
 }
