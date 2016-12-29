@@ -1,41 +1,15 @@
 #!/bin/bash
 
-# Downloads dependencies into vendor/ directory
-if [[ ! -d vendor ]]; then
-  mkdir vendor
+# This file is just wrapper around vndr (github.com/LK4D4/vndr) tool.
+# For updating dependencies you should change `vendor.conf` file in root of the
+# project. Please refer to https://github.com/LK4D4/vndr/blob/master/README.md for
+# vndr usage.
+
+set -e
+
+if ! hash vndr; then
+	echo "Please install vndr with \"go get github.com/LK4D4/vndr\" and put it in your \$GOPATH"
+	exit 1
 fi
-vendor_dir=${PWD}/vendor
 
-git_clone () {
-  PKG=$1
-  REV=$2
-  (
-    set -e
-    cd $vendor_dir
-    if [[ -d src/$PKG ]]; then
-      echo "src/$PKG already exists. Removing."
-      rm -fr src/$PKG
-    fi
-    cd $vendor_dir && git clone http://$PKG src/$PKG
-    cd src/$PKG && git checkout -f $REV && rm -fr .git
-  )
-}
-
-git_clone github.com/kr/pty 3b1f6487b
-
-git_clone github.com/gorilla/context/ 708054d61e5
-
-git_clone github.com/gorilla/mux/ 9b36453141c
-
-git_clone github.com/dotcloud/tar/ e5ea6bb21a
-
-# Docker requires code.google.com/p/go.net/websocket
-PKG=code.google.com/p/go.net REV=84a4013f96e0
-(
-  set -e
-  cd $vendor_dir
-  if [[ ! -d src/$PKG ]]; then
-    hg clone https://$PKG src/$PKG
-  fi
-  cd src/$PKG && hg checkout -r $REV
-)
+vndr "$@"
